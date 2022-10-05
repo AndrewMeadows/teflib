@@ -30,6 +30,8 @@ bool g_running = false;
 int32_t g_num_exit_signals = 0;
 int32_t g_exit_value = 0;
 
+TRACE_GLOBAL_INIT
+
 void exit_handler(int32_t signum ) {
     ++g_num_exit_signals;
     LOG("received interrupt signal={} count={}\n", signum, g_num_exit_signals);
@@ -63,10 +65,10 @@ void exit_handler(int32_t signum ) {
 // defined the tracing macros will exand to NO-OP code which a smart
 // compiler will be able to optimize out.
 #ifdef USE_TEF
-std::unique_ptr<tef::Trace_to_file> trace_consumer;
 
 void trace_handler(int32_t signum) {
-    if (!trace_consumer) {
+    // g_trace_consumer was created in TRACE_GLOBAL_INIT
+    if (!g_trace_consumer) {
         // we don't yet have a consumer,
         // so we create one and add it to the Tracer
         // which will enable tracing and cause it to start collecting events
@@ -77,18 +79,18 @@ void trace_handler(int32_t signum) {
         std::string filename = fmt::format("/tmp/{}-trace.json", timestamp);
         LOG("START trace file={} lifetime={}msec\n", filename, TRACE_LIFETIME);
 
-        trace_consumer = std::make_unique<tef::Trace_to_file>(TRACE_LIFETIME, filename);
-        tef::Tracer::instance().add_consumer(trace_consumer.get());
+        g_trace_consumer = std::make_unique<tef::Trace_to_file>(TRACE_LIFETIME, filename);
+        tef::Tracer::instance().add_consumer(g_trace_consumer.get());
         fmt::print("press 'CTRL-C' again to toggle tracing OFF\n");
     } else {
         // we already have consumer,
         // so we interpret this signal as a desire to stop tracing early
         // --> update it with a low expiry and the Tracer will finish it
         // on next mainloop.
-        trace_consumer->update_expiry(0);
-        const std::string& filename = trace_consumer->get_filename();
+        g_trace_consumer->update_expiry(0);
+        const std::string& filename = g_trace_consumer->get_filename();
         LOG("STOP trace file={}\n", filename);
-        // Note: trace_consumer will automatically expire after 10 seconds,
+        // Note: g_trace_consumer will automatically expire after 10 seconds,
         // even if a second signal never arrives to toggle it off.  This to
         // prevent the trace results file from getting too big: the chrome
         // browser can crash/lock-up when trying to load too much data.
@@ -206,31 +208,18 @@ int32_t main(int32_t argc, char** argv) {
             // num_events will be visible in chrome://tracing browser
             TRACE_CONTEXT_ARGS("\"num_events\":{}", tef::Tracer::instance().get_num_events());
 
-            // main thread must harvest the accumulated trace data
-            // which has piled up across all threads.  This is where
-            // the trace data (if any) gets written to file
-            TRACE_ADVANCE_CONSUMERS;
-#ifdef USE_TEF
-            // cleanup the old trace_consumer after it expires
-            if (trace_consumer && trace_consumer->is_complete()) {
-                trace_consumer.reset();
-            }
-#endif // USE_TEF
+            // do TRACE harvest/maintenance
+            TRACE_MAINLOOP
         }
 
         {
-            TRACE_CONTEXT("sleep", "perf")
+            TRACE_CONTEXT("sleep", "perf");
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
 
     // cleanup unfinished tracing (if any) to avoid crash on shutdown
     TRACE_SHUTDOWN;
-#ifdef USE_TEF
-    if (trace_consumer) {
-        trace_consumer.reset();
-    }
-#endif // USE_TEF
 
     // since we have a blocking input thread we explicitly stop the pool
     pool.stop_everything();

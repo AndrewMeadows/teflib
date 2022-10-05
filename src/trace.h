@@ -3,33 +3,24 @@
 //  Distributed under the Apache License, Version 2.0.
 //  See the accompanying file LICENSE or http://www.apache.org/licenses/LICENSE-2.0.html
 //
+// teflib is a C++ utility for producing data as per the Google Trace Event Format (TEF):
 //
-// Suggested usage pattern:
+//     https://docs.google.com/document/d/1CvAClvFfyA5R-PhYUmn5OOQtYMH4h6I0nSsKchNAySU/edit#heading=h.yr4qxyxotyw
 //
-// (0) Use the macros at the bottom of this file:
+// A suggested usage pattern is to use the macros at the bottom of this file:
 //
-// (1) Add TRACE_CONTEXT("name", "category,list") wherever you want to measure timing.
-//     Only one per scope, but you can add to embedded scopes.
+// (1) Add trace.h and trace.cpp to your project or link pre-compiled teflib library.
 //
-// (2) Implement a custom Consumer class to handle trace events
-//     or use tef::Trace_to_file consumer to write to file.
+// (2) In main gloabl space add the macro: #TRACE_GLOBAL_INIT
 //
-// (3) To start tracing: add consumer to Tracer. This will enable trace events.
+// (3) In mainloop add the macro: #TRACE_MAINLOOP
 //
-// (4) Every so often (e.g. inside mainloop):
+// (4) After mainloop but before exit add the macro: #TRACE_SHUTDOWN
 //
-//   (4A) call TRACE_ADVANCE_CONSUMERS
+// (5) In any context for which you want to measure duration add a macro: #TRACE_CONTEXT("name", "category")
+//     No more than one instance of this macro in each context level.
 //
-//   (4B) when consumer->is_complete() --> delete it
-//        (it will have been automatically removed from Tracer)
-//
-// (5) When Tracer has no consumers it stops collecting trace
-//     events.
-//
-// (6) Add TRACE_SHUTDOWN after mainloop exits in case there
-//     are unfinished consumers on shutdown.
-//
-// (7) Compile project with -DUSE_TEF
+// (6) Compile project with -DUSE_TEF
 
 #pragma once
 
@@ -51,15 +42,6 @@ constexpr uint64_t MSEC_PER_SECOND = 1e3;
 
 // The goal here is to provide a fast+simple trace tool rather than a
 // complete one.  As a consequence not all Phase types are supported.
-//
-//   name = human readable name for the event
-//   cat = comma separated strings used for filtering
-//   ph = phase type
-//   ts = timestamp
-//   tid = thread_id
-//   pid = process_id
-//   args = JSON string of special info
-//
 //
 enum Phase : char {
     // supported:
@@ -294,12 +276,14 @@ private:
 
 #ifdef USE_TEF
 
+    // use this in main global space
+    #define TRACE_GLOBAL_INIT std::unique_ptr<tef::Trace_to_file> g_trace_consumer;
 
-    // use this inside your mainloop
-    #define TRACE_ADVANCE_CONSUMERS ::tef::Tracer::instance().advance_consumers();
+    // use this inside mainloop
+    #define TRACE_MAINLOOP ::tef::Tracer::instance().advance_consumers(); if(g_trace_consumer && g_trace_consumer->is_complete()) g_trace_consumer.reset();
 
     // use this after mainloop, before exit
-    #define TRACE_SHUTDOWN ::tef::Tracer::instance().shutdown();
+    #define TRACE_SHUTDOWN ::tef::Tracer::instance().shutdown(); if (g_trace_consumer) g_trace_consumer.reset();
 
     // use these to add meta_events
     #define TRACE_PROCESS(name) ::tef::Tracer::instance().add_meta_event("process_name", name);
@@ -309,11 +293,11 @@ private:
     // use TRACE_CONTEXT for easy Duration events
     #define TRACE_CONTEXT(name, cat) ::tef::Context _tef_context_(name, cat);
 
-    // where a TRACE_CONTEXT is active args can be added later
+    // where a TRACE_CONTEXT is active: args can be added later
     #define TRACE_CONTEXT_ARGS(fmt_string, ...) _tef_context_.add_args(fmt::format(fmt_string,__VA_ARGS__));
 
-    // use TRACE_BEGIN/END only if you know what you're doing
-    // in other words: when TRACE_CONTEXT doesn't do what you need
+    // use TRACE_BEGIN/END when you know what you're doing
+    // and when TRACE_CONTEXT does not quite do what you need
     #define TRACE_BEGIN(name, cat) ::tef::Tracer::instance().add_event(name, cat, ::tef::Phase::DurationBegin);
     #define TRACE_END(name, cat) ::tef::Tracer::instance().add_event(name, cat, ::tef::Phase::DurationEnd);
 
@@ -326,16 +310,19 @@ private:
     // (2) it is a single expression and should not unexpectedly break contexts
     //     (e.g. when used in a single-line 'if' context without brackets)
 
-    #define TRACE_ADVANCE_CONSUMERS do{}while(0);
-    #define TRACE_SHUTDOWN do{}while(0);
+    #define TRACE_NOOP do{}while(0)
 
-    #define TRACE_PROCESS(name) do{}while(0);
-    #define TRACE_THREAD(name) do{}while(0);
-    #define TRACE_THREAD_SORT(index) do{}while(0);
+    #define TRACE_GLOBAL_INIT TRACE_NOOP;
+    #define TRACE_MAINLOOP TRACE_NOOP;
+    #define TRACE_SHUTDOWN TRACE_NOOP;
 
-    #define TRACE_CONTEXT(name, cat) do{}while(0);
-    #define TRACE_CONTEXT_ARGS(fmt_string, ...) do{}while(0);
-    #define TRACE_BEGIN(name, cat) do{}while(0);
-    #define TRACE_END(name, cat) do{}while(0);
+    #define TRACE_PROCESS(name) TRACE_NOOP;
+    #define TRACE_THREAD(name) TRACE_NOOP;
+    #define TRACE_THREAD_SORT(index) TRACE_NOOP;
+
+    #define TRACE_CONTEXT(name, cat) TRACE_NOOP;
+    #define TRACE_CONTEXT_ARGS(fmt_string, ...) TRACE_NOOP;
+    #define TRACE_BEGIN(name, cat) TRACE_NOOP;
+    #define TRACE_END(name, cat) TRACE_NOOP;
 
 #endif // USE_TEF

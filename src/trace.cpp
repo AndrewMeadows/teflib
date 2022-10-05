@@ -153,6 +153,17 @@ void Tracer::advance_consumers() {
     std::vector<std::string> event_strings;
     std::string ph_str("a");
     for (size_t i = 0; i < events.size(); ++i) {
+        // For reference:
+        //
+        //   name = human readable name for the event
+        //   cat = comma separated strings used for filtering
+        //   ph = phase type
+        //   ts = timestamp
+        //   dur = duration
+        //   tid = thread_id
+        //   pid = process_id
+        //   args = JSON string of special info
+
         const auto& event = events[i];
         // for speed we use fmt formatting where possible...
         ph_str[0] = event.ph;
