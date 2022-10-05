@@ -12,7 +12,7 @@ It is most commonly used for webpage JavaScript performance analysis however it 
 It does not yet support 100% of the TEF feature set, but it is complete enough for many purposes.
 
 ## How to use teflib?
-**teflib** consists of two files: `trace.h` and `trace.cpp` and adds a dependency on the **fmt** library.
+**teflib** consists of two files: `trace.h` and `trace.cpp`.  It requires at least **C++-14** and depends on the [fmt](https://fmt.dev/latest/index.html) library.
 The files can be embedded in your own project, or they can be compiled into a library and linked as a dependency.
 
 The simplest pattern is to sprinkle teflib's **helper macros** in your code:
@@ -76,6 +76,15 @@ Wherever you want to measure duration add a `TRACE_CONTEXT()` macro, one per con
     }
 ```
 
-There is a little more to it because tracing shouldn't be enabled by defalt: you would normally toggle it on/off with one or more triggers.
+There is a little more to it because tracing shouldn't be enabled by default: you would normally toggle it on/off with one or more triggers.
 There are many ways to do this and the best way will depend on your application's interface.
 Please examine the teflib `example` source code to see one way to do it.
+
+## To build:
+1. In `teflib/` main directory:
+  1. `mkdir build`
+  1. `cd build`
+1. In `teflib/build/` directory:
+  1. `cmake -DCMAKE_BUILD_TYPE=Release ../`
+  1. `make`
+

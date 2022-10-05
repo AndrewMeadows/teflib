@@ -11,13 +11,13 @@
 //
 // (1) Add trace.h and trace.cpp to your project or link pre-compiled teflib library.
 //
-// (2) In main gloabl space add the macro: #TRACE_GLOBAL_INIT
+// (2) In main gloabl space add the macro: TRACE_GLOBAL_INIT
 //
-// (3) In mainloop add the macro: #TRACE_MAINLOOP
+// (3) In mainloop add the macro: TRACE_MAINLOOP
 //
-// (4) After mainloop but before exit add the macro: #TRACE_SHUTDOWN
+// (4) After mainloop but before exit add the macro: TRACE_SHUTDOWN
 //
-// (5) In any context for which you want to measure duration add a macro: #TRACE_CONTEXT("name", "category")
+// (5) In any context for which you want to measure duration add a macro: TRACE_CONTEXT("name", "category")
 //     No more than one instance of this macro in each context level.
 //
 // (6) Compile project with -DUSE_TEF

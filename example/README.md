@@ -6,14 +6,14 @@ A simple multi-threaded CLI application instrumented with teflib for trace measu
   1. `mkdir build`
   1. `cd build`
 1. In `teflib/build/` directory:
-  1. `cmake -DCMAKE_BUILD_TYPE=Release
+  1. `cmake -DCMAKE_BUILD_TYPE=Release ../`
   1. `make`
 
 ## Run the example:
 1. In `teflib/build/example/` run the executable: `./example`
-1. Press CTRL-C to start tracing.
-1. Press CTRL-C again to stop tracing.  The app should write data to file: `/tmp/YYYYMMDD_HH:MM:SS-trace.json`.
-1. Press CTRL-C a third time to stop the process.
+1. Press **CTRL-C** to start tracing.
+1. Press **CTRL-C** again to stop tracing.  The app should write data to timestamped file: `/tmp/YYYYMMDD_HH:MM:SS-trace.json`.
+1. Press **CTRL-C** a third time to stop the process.
 
 ## Examine the trace data:
 1. Open Chrome browser and navigate to its [trace browser tool](chrome://tracing).
