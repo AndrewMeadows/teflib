@@ -1,17 +1,17 @@
 # teflib
-Lightweight C++ tracing library produces data in Google's
+Lightweight C++ tracing library to produce data in Google's
 [Trace Event Format](https://docs.google.com/document/d/1CvAClvFfyA5R-PhYUmn5OOQtYMH4h6I0nSsKchNAySU/edit#heading=h.yr4qxyxotyw)
 (**TEF**).
 
-# What is it?
+## What is it?
 The Chrome browser has a tool at [chrome://tracing](chrome://tracing)
 which allows for easy visualization and examination of timing measurements.
-It is most commonly used for JavaScript performance analysis however it will load any correctly formatted data file.
+It is most commonly used for webpage JavaScript performance analysis however it will load any correctly formatted data file.
 
 **teflib** is a small utility for measuring events in a C++ project and then properly formatting that data so it can be loaded by the [chrome://tracing](chrome://tracing) tool.
 It does not yet support 100% of the TEF feature set, but it is complete enough for many purposes.
 
-# How to use teflib?
+## How to use teflib?
 **teflib** consists of two files: `trace.h` and `trace.cpp` and adds a dependency on the **fmt** library.
 The files can be embedded in your own project, or they can be compiled into a library and linked as a dependency.
 
