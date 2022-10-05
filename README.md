@@ -82,9 +82,9 @@ Please examine the teflib `example` source code to see one way to do it.
 
 ## To build:
 1. In `teflib/` main directory:
-  1. `mkdir build`
-  1. `cd build`
+    1. `mkdir build`
+    1. `cd build`
 1. In `teflib/build/` directory:
-  1. `cmake -DCMAKE_BUILD_TYPE=Release ../`
-  1. `make`
+    1. `cmake -DCMAKE_BUILD_TYPE=Release ../`
+    1. `make`
 

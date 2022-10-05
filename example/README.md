@@ -1,13 +1,13 @@
 # teflib example
-A simple multi-threaded CLI application instrumented with teflib for trace measurements.
+A simple multi-threaded CLI application instrumented with **teflib** for trace measurements.
 
 ## Build the example:
 1. In `teflib/` main directory:
-  1. `mkdir build`
-  1. `cd build`
+    1. `mkdir build`
+    1. `cd build`
 1. In `teflib/build/` directory:
-  1. `cmake -DCMAKE_BUILD_TYPE=Release ../`
-  1. `make`
+    1. `cmake -DCMAKE_BUILD_TYPE=Release ../`
+    1. `make`
 
 ## Run the example:
 1. In `teflib/build/example/` run the executable: `./example`
