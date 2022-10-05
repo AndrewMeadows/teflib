@@ -10,7 +10,7 @@
 #include <fmt/format.h>
 
 // Note: TEFLIB_TRACE_LOG is a hook for printing trace state transitions to stdout.
-// To use it, supply your own macro variable argument implementation.  For example:
+// To use it, supply your own variable argument macro implementation.  For example:
 //#define TEFLIB_TRACE_LOG(fmtstr,...) fmt::print(fmtstr, __VA_ARGS__);
 //
 // Otherwise it defaults to NO-OP
@@ -19,9 +19,9 @@
 #define TEFLIB_TRACE_LOG(fmtstr,...) do{}while(0);
 #endif
 
-using namespace tef::trace;
+using namespace tef;
 
-inline uint64_t get_now_msec() {
+uint64_t get_now_msec() {
     using namespace std::chrono;
     static uint64_t msec_offset = 0;
     if (msec_offset == 0) {
@@ -42,10 +42,14 @@ std::string Tracer::thread_id_as_string() {
     return tid_str.str();
 }
 
-void Tracer::add_event(const std::string& name, const std::string& cat, Phase ph) {
+void Tracer::add_event(const std::string& name, const std::string& cat, Phase ph, uint64_t ts, uint64_t dur) {
     if (_enabled) {
+        if (ts == 0)
+        {
+            ts = Tracer::instance().now();
+        }
         std::lock_guard<std::mutex> lock(_event_mutex);
-        _events.push_back({name, cat, now(), std::this_thread::get_id(), -1, ph});
+        _events.push_back({name, cat, ts, dur, std::this_thread::get_id(), -1, ph});
     }
 }
 
@@ -53,12 +57,19 @@ void Tracer::add_event_with_args(
         const std::string& name,
         const std::string& cat,
         Phase ph,
-        const std::string& args) {
+        const std::string& args,
+        uint64_t ts,
+        uint64_t dur)
+{
     if (_enabled) {
+        if (ts == 0)
+        {
+            ts = Tracer::instance().now();
+        }
         std::lock_guard<std::mutex> lock(_event_mutex);
         int32_t args_index = (int32_t)(_args.size());
         _args.push_back(args);
-        _events.push_back({name, cat, now(), std::this_thread::get_id(), args_index, ph});
+        _events.push_back({name, cat, ts, dur, std::this_thread::get_id(), args_index, ph});
     }
 }
 
@@ -72,7 +83,7 @@ void Tracer::set_counter(
         std::lock_guard<std::mutex> lock(_event_mutex);
         int32_t args_index = (int32_t)(_args.size());
         _args.push_back(args);
-        _events.push_back({name, cat, now(), std::this_thread::get_id(), args_index, Phase::Counter});
+        _events.push_back({name, cat, now(), 0, std::this_thread::get_id(), args_index, Phase::Counter});
     }
 }
 
@@ -146,9 +157,18 @@ void Tracer::advance_consumers() {
         // for speed we use fmt formatting where possible...
         ph_str[0] = event.ph;
         std::stringstream stream;
-        stream << fmt::format(
-                "{{\"name\":\"{}\",\"cat\":\"{}\",\"ph\":\"{}\",\"ts\":{},\"pid\":1",
-                event.name, event.cat, ph_str, event.ts);
+        if (event.ph == Phase::Complete)
+        {
+            stream << fmt::format(
+                    "{{\"name\":\"{}\",\"cat\":\"{}\",\"ph\":\"{}\",\"ts\":{},\"dur\":{},\"pid\":1",
+                    event.name, event.cat, ph_str, event.ts, event.dur);
+        }
+        else
+        {
+            stream << fmt::format(
+                    "{{\"name\":\"{}\",\"cat\":\"{}\",\"ph\":\"{}\",\"ts\":{},\"pid\":1",
+                    event.name, event.cat, ph_str, event.ts);
+        }
         // and std::ostream formatting when necessary...
         stream << ",\"tid\":" << event.tid;
         if (event.args_index != -1) {
@@ -277,8 +297,8 @@ void Trace_to_file::finish(const std::vector<std::string>& meta_events) {
     if (_stream.is_open()) {
         // TRICK: end with bogus "complete" event sans ending comma
         // (this simplifies consume_event() logic)
-        std::string tid_str = trace::Tracer::thread_id_as_string();
-        uint64_t ts = trace::Tracer::instance().now();
+        std::string tid_str = Tracer::thread_id_as_string();
+        uint64_t ts = Tracer::instance().now();
         std::string bogus_event = fmt::format(
             "{{\"name\":\"end_of_trace\",\"ph\":\"X\",\"pid\":1,\"tid\":{},\"ts\":{},\"dur\":1000}}",
             tid_str, ts);
