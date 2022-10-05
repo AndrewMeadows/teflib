@@ -15,4 +15,5 @@ add_definitions("-std=c++11")
 include(externals)
 
 add_subdirectory(src)
+add_subdirectory(example)
 
