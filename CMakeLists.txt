@@ -12,6 +12,9 @@ message("adebug -- CMAKE_MODULE_PATH=${CMAKE_MODULE_PATH}")
 
 add_definitions("-std=c++11")
 
+# To avoid a dependency on fmt lib add definition: -DNO_FMT
+#add_definitions("-DNO_FMT")
+
 include(externals)
 
 add_subdirectory(src)

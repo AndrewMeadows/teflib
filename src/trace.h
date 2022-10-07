@@ -33,7 +33,12 @@
 #include <fstream>
 #include <cassert>
 
+// to avoid dependency on fmt compile with -DNO_FMT
+#ifdef NO_FMT
+#include <sstream>
+#else
 #include <fmt/format.h>
+#endif
 
 namespace tef {
 
@@ -249,7 +254,14 @@ public:
         }
         else
         {
+#ifdef NO_FMT
+            std::string args = "{";
+            args.append(_args);
+            args.append("}");
+            Tracer::instance().add_event_with_args(_name, _cat, Phase::Complete, args, _ts, Tracer::instance().now() - _ts);
+#else
             Tracer::instance().add_event_with_args(_name, _cat, Phase::Complete, fmt::format("{{{}}}", _args), _ts, Tracer::instance().now() - _ts);
+#endif // NO_FMT
         }
     }
 private:
@@ -294,7 +306,16 @@ private:
     #define TRACE_CONTEXT(name, cat) ::tef::Context _tef_context_(name, cat);
 
     // where a TRACE_CONTEXT is active: args can be added later
+#ifdef NO_FMT
+    // when not using fmt expect single key:value arguments
+    #define TRACE_CONTEXT_ARGS(key, value) std::string s = key; \
+        size_t p = s.find("{}"); \
+        if (p != std::string::npos) s.erase(p, 2); \
+        std::stringstream _ss_; \
+        _ss_ << s; _ss_ << value; _tef_context_.add_args(_ss_.str());
+#else
     #define TRACE_CONTEXT_ARGS(fmt_string, ...) _tef_context_.add_args(fmt::format(fmt_string,__VA_ARGS__));
+#endif //NO_FMT
 
     // use TRACE_BEGIN/END when you know what you're doing
     // and when TRACE_CONTEXT does not quite do what you need
