@@ -32,8 +32,10 @@
 #include <vector>
 #include <fstream>
 #include <cassert>
+#include <string>
 
 // to avoid dependency on fmt compile with -DNO_FMT
+#define NO_FMT
 #ifdef NO_FMT
 #include <sstream>
 #else
@@ -84,6 +86,8 @@ enum Phase : char {
     ContextLeave = ')'
 };
 
+uint64_t get_now_msec();
+
 // Note: Tracer is a singleton
 class Tracer {
 public:
@@ -112,6 +116,8 @@ public:
             }
             _lifetime = lifetime;
         }
+
+        virtual ~Consumer() {}
 
         // override this pure virtual method to Do Stuff with events
         // each event will be a JSON string as per the google tracing API
@@ -307,12 +313,14 @@ private:
 
     // where a TRACE_CONTEXT is active: args can be added later
 #ifdef NO_FMT
-    // when not using fmt expect single key:value arguments
-    #define TRACE_CONTEXT_ARGS(key, value) std::string s = key; \
+    // when not using fmt expect single "\"key\":{}" value arguments
+    #define TRACE_CONTEXT_ARGS(key, value) {std::string s = key; \
         size_t p = s.find("{}"); \
         if (p != std::string::npos) s.erase(p, 2); \
         std::stringstream _ss_; \
-        _ss_ << s; _ss_ << value; _tef_context_.add_args(_ss_.str());
+        if (p == s.size()) _ss_ << s << value; \
+        else _ss_ << s.substr(0, p) << value << s.substr(p, std::string::npos); \
+        _tef_context_.add_args(_ss_.str());}
 #else
     #define TRACE_CONTEXT_ARGS(fmt_string, ...) _tef_context_.add_args(fmt::format(fmt_string,__VA_ARGS__));
 #endif //NO_FMT
@@ -333,7 +341,7 @@ private:
 
     #define TRACE_NOOP do{}while(0)
 
-    #define TRACE_GLOBAL_INIT TRACE_NOOP;
+    #define TRACE_GLOBAL_INIT int _foo_(){return 0;}
     #define TRACE_MAINLOOP TRACE_NOOP;
     #define TRACE_SHUTDOWN TRACE_NOOP;
 

@@ -7,7 +7,6 @@
 #include "trace.h"
 
 #include <sstream>
-#include <fmt/format.h>
 
 // Note: TEFLIB_TRACE_LOG is a hook for printing trace state transitions to stdout.
 // To use it, supply your own variable argument macro implementation.  For example:
@@ -21,7 +20,7 @@
 
 using namespace tef;
 
-uint64_t get_now_msec() {
+uint64_t tef::get_now_msec() {
     using namespace std::chrono;
     static uint64_t msec_offset = 0;
     if (msec_offset == 0) {
@@ -145,15 +144,15 @@ void Tracer::add_meta_event(const std::string& type, uint32_t arg) {
 
         // meta_events get formatted to strings immediately
 #ifdef NO_FMT
-        std::string event = "{\"name\":";
+        std::string event = "{\"name\":\"";
         event.append(type);
-        event.append(",\"ph\":\"M\",\"pid\":1,\"tid\"");
+        event.append("\",\"ph\":\"M\",\"pid\":1,\"tid\":");
         event.append(tid_str);
         event.append(",\"args\":{\"sort_index\":");
         std::ostringstream ss;
         ss << arg;
         event.append(ss.str());
-        event.append("\"}}");
+        event.append("}}");
 #else
         std::string event = fmt::format(
                 "{{\"name\":\"{}\",\"M\",\"pid\":1,\"tid\":{},\"args\":{{\"sort_index\":{}}}}}",
