@@ -11,8 +11,6 @@
 // PID=./teflib_example
 // kill --SIGUSR2 $PID
 
-#include "trace.h"
-
 #include <algorithm>
 #include <chrono>
 #include <csignal>
@@ -24,6 +22,12 @@
 #include "util/log_util.h"
 #include "util/timing_util.h"
 #include "util/thread_pool.h"
+
+// uncomment NO_FMT to avoid fmt dependency in teflib
+//#define NO_FMT
+
+#define USE_FMT
+#include "trace.h"
 
 // globals
 bool g_running = false;

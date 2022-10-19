@@ -17,7 +17,8 @@ add_executable (${TARGET_NAME}
     util/log_util.h
 )
 
-add_definitions("-DUSE_TEF")
+# use a line like the one below to enable teflib at cmake step
+#add_definitions("-DUSE_TEF")
 
 target_include_directories(${TARGET_NAME} PUBLIC ../src/)
 
