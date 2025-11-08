@@ -41,20 +41,20 @@ std::string Tracer::thread_id_as_string() {
     return tid_str.str();
 }
 
-void Tracer::add_event(const std::string& name, const std::string& cat, Phase ph, uint64_t ts, uint64_t dur) {
+void Tracer::add_event(uint8_t name, uint8_t categories, Phase ph, uint64_t ts, uint64_t dur) {
     if (_enabled) {
         if (ts == 0)
         {
             ts = Tracer::instance().now();
         }
         std::lock_guard<std::mutex> lock(_event_mutex);
-        _events.push_back({name, cat, ts, dur, std::this_thread::get_id(), -1, ph});
+        _events.push_back({name, categories, ts, dur, std::this_thread::get_id(), -1, ph});
     }
 }
 
 void Tracer::add_event_with_args(
-        const std::string& name,
-        const std::string& cat,
+        uint8_t name,
+        uint8_t categories,
         Phase ph,
         const std::string& args,
         uint64_t ts,
@@ -68,30 +68,30 @@ void Tracer::add_event_with_args(
         std::lock_guard<std::mutex> lock(_event_mutex);
         int32_t args_index = (int32_t)(_args.size());
         _args.push_back(args);
-        _events.push_back({name, cat, ts, dur, std::this_thread::get_id(), args_index, ph});
+        _events.push_back({name, categories, ts, dur, std::this_thread::get_id(), args_index, ph});
     }
 }
 
 void Tracer::set_counter(
-        const std::string& name,
-        const std::string& cat,
+        uint8_t name,
+        uint8_t categories,
         int64_t count)
 {
     if (_enabled) {
+        std::lock_guard<std::mutex> lock(_event_mutex);
 #ifdef NO_FMT
         std::string args = "\"";
-        args.append(name);
+        args.append(_registered_strings[name]);
         args.append("\":");
         std::ostringstream ss;
         ss << count;
         args.append(ss.str());
 #else
-        std::string args = fmt::format("\"{}\":{}", name, count);
+        std::string args = fmt::format("\"{}\":{}", _registered_strings[name], count);
 #endif // NO_FMT
-        std::lock_guard<std::mutex> lock(_event_mutex);
         int32_t args_index = (int32_t)(_args.size());
         _args.push_back(args);
-        _events.push_back({name, cat, now(), 0, std::this_thread::get_id(), args_index, Phase::Counter});
+        _events.push_back({name, categories, now(), 0, std::this_thread::get_id(), args_index, Phase::Counter});
     }
 }
 
@@ -181,6 +181,13 @@ void Tracer::advance_consumers() {
         return;
     }
 
+    // copy registered_strings under lock
+    std::vector<std::string> registered_strings;
+    {
+        std::lock_guard<std::mutex> lock(_event_mutex);
+        registered_strings = _registered_strings;
+    }
+
     // convert events to strings
     std::vector<std::string> event_strings;
     std::string ph_str("a");
@@ -188,7 +195,7 @@ void Tracer::advance_consumers() {
         // For reference:
         //
         //   name = human readable name for the event
-        //   cat = comma separated strings used for filtering
+        //   cat = comma separated words used for filtering
         //   ph = phase type
         //   ts = timestamp
         //   dur = duration
@@ -197,14 +204,16 @@ void Tracer::advance_consumers() {
         //   args = JSON string of special info
 
         const auto& event = events[i];
+        const std::string& name = registered_strings[event.name];
+        const std::string& categories = registered_strings[event.categories];
         // for speed we use fmt formatting where possible...
         ph_str[0] = event.ph;
         std::ostringstream stream;
         if (event.ph == Phase::Complete)
         {
 #ifdef NO_FMT
-            stream << "{\"name\":\"" << event.name << "\""
-                << ",\"cat\":\"" << event.cat << "\""
+            stream << "{\"name\":\"" << name << "\""
+                << ",\"cat\":\"" << categories << "\""
                 << ",\"ph\":\"" << ph_str << "\""
                 << ",\"ts\":" << event.ts
                 << ",\"dur\":" << event.dur
@@ -212,21 +221,21 @@ void Tracer::advance_consumers() {
 #else
             stream << fmt::format(
                     "{{\"name\":\"{}\",\"cat\":\"{}\",\"ph\":\"{}\",\"ts\":{},\"dur\":{},\"pid\":1",
-                    event.name, event.cat, ph_str, event.ts, event.dur);
+                    name, categories, ph_str, event.ts, event.dur);
 #endif // NO_FMT
         }
         else
         {
 #ifdef NO_FMT
-            stream << "{\"name\":\"" << event.name << "\""
-                << ",\"cat\":\"" << event.cat << "\""
+            stream << "{\"name\":\"" << name << "\""
+                << ",\"cat\":\"" << categories << "\""
                 << ",\"ph\":\"" << ph_str << "\""
                 << ",\"ts\":" << event.ts
                 << ",\"pid\":1";
 #else
             stream << fmt::format(
                     "{{\"name\":\"{}\",\"cat\":\"{}\",\"ph\":\"{}\",\"ts\":{},\"pid\":1",
-                    event.name, event.cat, ph_str, event.ts);
+                    name, categories, ph_str, event.ts);
 #endif // NO_FMT
         }
         // and std::ostream formatting when necessary...
@@ -305,6 +314,11 @@ void Tracer::add_consumer(Tracer::Consumer* consumer) {
             TEFLIB_TRACE_LOG("trace enabled={}\n", _enabled);
         }
     }
+}
+
+void Tracer::register_string(uint8_t index, const std::string& str) {
+    std::lock_guard<std::mutex> lock(_event_mutex);
+    _registered_strings[index] = str;
 }
 
 void Tracer::remove_consumer(Tracer::Consumer* consumer) {

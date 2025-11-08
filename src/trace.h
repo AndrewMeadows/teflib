@@ -13,15 +13,22 @@
 //
 // (2) In main global space (before main() or in global namespace) add the macro: TRACE_GLOBAL_INIT
 //
-// (3) In your main loop, call TRACE_MAINLOOP repeatedly on each iteration
+// (3) In main entrypoint register strings used to name various contexts and category filters.
+//     The string registration allows the tracing macros to avoid expensive allocations at runtime
+//     which reduces the overhead of the trace operations.
 //
-// (4) After mainloop but before exit add the macro: TRACE_SHUTDOWN
+// (4) In your main loop, call TRACE_MAINLOOP repeatedly on each iteration
 //
-// (5) In any context for which you want to measure duration add a macro: TRACE_CONTEXT("name", "category")
+// (5) After mainloop but before exit add the macro: TRACE_SHUTDOWN
+//
+// (6) In any context for which you want to measure duration add a macro:
+//        TRACE_CONTEXT(name, categories)
 //     Declare only once per scope - multiple TRACE_CONTEXT instances in the same scope
 //     will cause variable name collisions and compilation errors.
+//     name = uint8_t index to pre-registered string name of context
+//     categories = uing8_t index to pre-registered string of comma-separated words used for filtering
 //
-// (6) Compile project with -DUSE_TEF
+// (7) Compile project with -DUSE_TEF
 //
 // Example usage:
 //
@@ -29,14 +36,28 @@
 //
 //     TRACE_GLOBAL_INIT
 //
+//     // using constexpr for trace string indices isn't required
+//     // but simplifies multi-threaded context of the indices
+//     // and minimizes the compiled runtime overhead
+//     constexpr MY_FUNCTION = 0;
+//     constexpr WORK = 1;
+//
+//     void register_trace_strings {
+//         TRACE_REGISTER_STRING(MY_FUNCTION, "my_function");
+//         TRACE_REGISTER_STRING(WORK, "work");
+//     }
+//
 //     void my_function() {
-//         TRACE_CONTEXT("my_function", "work");
+//         TRACE_CONTEXT(MY_FUNCTION, WORK);
 //         // ... function body ...
 //     }
 //
 //     int main() {
+//         // init trace strings
+//         register_trace_strings();
+//
 //         // Start tracing to file for 5 seconds
-//         TRACE_START(5000, "trace.json")
+//         TRACE_START(5000, "trace.json");
 //
 //         while (running) {
 //             TRACE_MAINLOOP
@@ -51,14 +72,15 @@
 #pragma once
 
 #include <atomic>
+#include <cassert>
 #include <chrono>
 #include <cstdint>
+#include <fstream>
 #include <mutex>
+#include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
-#include <fstream>
-#include <cassert>
-#include <string>
 
 // to avoid dependency on fmt compile with -DNO_FMT
 #define NO_FMT
@@ -186,7 +208,9 @@ public:
     // helper
     static std::string thread_id_as_string();
 
-    Tracer() : _start_time(std::chrono::high_resolution_clock::now()) { }
+    Tracer() : _start_time(std::chrono::high_resolution_clock::now()) {
+        _registered_strings.resize(256);
+    }
 
     uint64_t now() const {
         uint64_t t = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -206,14 +230,14 @@ public:
         return t;
     }
 
-    void add_event(const std::string& name, const std::string& cat, Phase ph, uint64_t ts=0, uint64_t dur=0);
+    void add_event(uint8_t name, uint8_t categories, Phase ph, uint64_t ts=0, uint64_t dur=0);
     void add_event_with_args(
-            const std::string& name,
-            const std::string& cat,
+            uint8_t name,
+            uint8_t categories,
             Phase ph,
             const std::string& args,
             uint64_t ts=0, uint64_t dur=0);
-    void set_counter(const std::string& name, const std::string& cat, int64_t count);
+    void set_counter(uint8_t name, uint8_t categories, int64_t count);
 
     // type = process_name, process_labels, or thread_name
     void add_meta_event(const std::string& type, const std::string& arg);
@@ -231,6 +255,11 @@ public:
 
     size_t get_num_events() const { return _events.size(); }
 
+    // Register a string for use with index arguments in Context or add_event.
+    // The registered string will remain valid for the lifetime of the Tracer.
+    // This is useful for dynamic strings that need to outlive the Context lifetime.
+    void register_string(uint8_t index, const std::string& str);
+
 private:
     static std::unique_ptr<Tracer> _instance;
     mutable std::mutex _event_mutex;
@@ -239,9 +268,11 @@ private:
 
     // Note: Event does not store 'pid' because we assume
     // all events are for the same process.
+    // Event uses uint8_t indices for name/categories to avoid allocations.
+    // The indices reference strings in _registered_strings.
     struct Event {
-        std::string name;
-        std::string cat;
+        uint8_t name;
+        uint8_t categories;
         uint64_t ts;
         uint64_t dur;
         std::thread::id tid;
@@ -254,6 +285,7 @@ private:
     std::vector<Event> _events;
     std::vector<std::string> _meta_events;
     std::vector<std::string> _args;
+    std::vector<std::string> _registered_strings; // pre-allocated to 256 elements
     std::atomic<bool> _enabled { false };
     mutable uint64_t _last_t { 0 };
 
@@ -265,44 +297,19 @@ private:
 // and creates a Phase::Complete event in dtor
 class Context {
 public:
-    Context(const std::string& name, const std::string& cat)
-        : _name(name), _cat(cat)
+    Context(uint8_t name, uint8_t categories)
+        : _name(name), _categories(categories)
     {
         _ts= Tracer::instance().now();
     }
 
-    void add_args(const std::string& args)
-    {
-        // args = ""\"key\":value,..."
-        if (!_args.empty())
-        {
-            _args.append(",");
-        }
-        _args.append(args);
-    }
-
     ~Context() {
-        if (_args.empty())
-        {
-            Tracer::instance().add_event(_name, _cat, Phase::Complete, _ts, Tracer::instance().now() - _ts);
-        }
-        else
-        {
-#ifdef NO_FMT
-            std::string args = "{";
-            args.append(_args);
-            args.append("}");
-            Tracer::instance().add_event_with_args(_name, _cat, Phase::Complete, args, _ts, Tracer::instance().now() - _ts);
-#else
-            Tracer::instance().add_event_with_args(_name, _cat, Phase::Complete, fmt::format("{{{}}}", _args), _ts, Tracer::instance().now() - _ts);
-#endif // NO_FMT
-        }
+        Tracer::instance().add_event(_name, _categories, Phase::Complete, _ts, Tracer::instance().now() - _ts);
     }
 private:
-    std::string _name;
-    std::string _cat;
-    std::string _args;
-    uint64_t _ts;
+    uint64_t _ts; // timestamp
+    uint8_t _name; // index to registered name string
+    uint8_t _categories; // index to registered string of comma separated category words
 };
 
 // Trace_to_file is a simple consumer for saving events to file
@@ -320,12 +327,22 @@ private:
 
 } // namespace tef
 
+    // We use 'do{}while(0)' as the no-op because:
+    // (1) Most compilers will optimize it out
+    // (2) It is a single expression and should not unexpectedly break contexts
+    //     (e.g. when used in a single-line-'if' context without braces)
+    #define TRACE_NOOP do{}while(0)
+
 #ifdef USE_TEF
 
     // Always invoke TRACE_GLOBAL_INIT in main global space.
     // It initializes g_trace_consumer_ptr which points at the glboal Trace_to_file instance
     // when tracing is active, or to nullptr when not.
     #define TRACE_GLOBAL_INIT std::unique_ptr<tef::Trace_to_file> g_trace_consumer_ptr;
+
+    // Register a string for use with TRACE_CONTEXT.
+    // The index must be a uint8_t value (0-255).
+    #define TRACE_REGISTER_STRING(index, str) ::tef::Tracer::instance().register_string(index, str)
 
     // Start tracing to filename for a duration of lifetime_msec.
     // After lifetime_msec the Trace_to_file instance will be "complete" and will be
@@ -362,41 +379,24 @@ private:
     #define TRACE_THREAD_SORT(index) ::tef::Tracer::instance().add_meta_event("thread_sort_index", index);
 
     // Create trace Events inside the local context.
-    #define TRACE_CONTEXT(name, cat) ::tef::Context _tef_context_(name, cat);
+    // name = index to the registered context name string
+    // categories = index to the registered categories string
+    #define TRACE_CONTEXT(name, categories) ::tef::Context _tef_context_(name, categories);
 
-    // Where a TRACE_CONTEXT is active: TRACE_CONTEXT_ARGS can used to add arguments
-    // (think "meta data") to the context.  The ARGS will be visible when analyzing
-    // the report.
-#ifdef NO_FMT
-    // when not using fmt expect single "\"key\":{}" value arguments
-    #define TRACE_CONTEXT_ARGS(key, value) {std::string s = key; \
-        size_t p = s.find("{}"); \
-        if (p != std::string::npos) {\
-            s.erase(p, 2); \
-            std::stringstream _ss_; \
-            if (p == s.size()) _ss_ << s << value;\
-            else _ss_ << s.substr(0, p) << value << s.substr(p, std::string::npos); \
-            _tef_context_.add_args(_ss_.str());\
-        }\
-    }
-#else
-    #define TRACE_CONTEXT_ARGS(fmt_string, ...) _tef_context_.add_args(fmt::format(fmt_string,__VA_ARGS__));
-#endif //NO_FMT
+    // TODO: implement TRACE_CONTEXT_FMT
+    // Add meta data to the active TRACE_CONTEXT
+    // The final data in the report will be the fusion of the pre-registered fmt string
+    // and the numerical value.
+    // For example: fmt="num_loops={}", value=7 --> final_report_string="num_loops=7"
+    #define TRACE_CONTEXT_ARG(fmt, value) TRACE_NOOP;
 
     // use TRACE_BEGIN/END when you know what you're doing
     // and when TRACE_CONTEXT does not quite do what you need
-    #define TRACE_BEGIN(name, cat) ::tef::Tracer::instance().add_event(name, cat, ::tef::Phase::DurationBegin);
-    #define TRACE_END(name, cat) ::tef::Tracer::instance().add_event(name, cat, ::tef::Phase::DurationEnd);
+    #define TRACE_BEGIN(name, categories) ::tef::Tracer::instance().add_event(name, categories, ::tef::Phase::DurationBegin);
+    #define TRACE_END(name, categories) ::tef::Tracer::instance().add_event(name, categories, ::tef::Phase::DurationEnd);
 
 #else   // USE_TEF
     // When USE_TEF is undefined all macros translate to no-ops.
-    //
-    // We use 'do{}while(0)' as the no-op because:
-    // (1) Most compilers will optimize it out
-    // (2) It is a single expression and should not unexpectedly break contexts
-    //     (e.g. when used in a single-line-'if' context without braces)
-
-    #define TRACE_NOOP do{}while(0)
 
     #define TRACE_GLOBAL_INIT int _foo_(){return 0;}
     #define TRACE_START(lifetime_msec, filename) TRACE_NOOP;
@@ -410,9 +410,10 @@ private:
     #define TRACE_THREAD(name) TRACE_NOOP;
     #define TRACE_THREAD_SORT(index) TRACE_NOOP;
 
-    #define TRACE_CONTEXT(name, cat) TRACE_NOOP;
-    #define TRACE_CONTEXT_ARGS(fmt_string, ...) TRACE_NOOP;
-    #define TRACE_BEGIN(name, cat) TRACE_NOOP;
-    #define TRACE_END(name, cat) TRACE_NOOP;
+    #define TRACE_CONTEXT(name, categories) TRACE_NOOP;
+    #define TRACE_REGISTER_STRING(index, str) TRACE_NOOP;
+    #define TRACE_CONTEXT_ARG(fmt, value) TRACE_NOOP;
+    #define TRACE_BEGIN(name, categories) TRACE_NOOP;
+    #define TRACE_END(name, categories) TRACE_NOOP;
 
 #endif // USE_TEF
