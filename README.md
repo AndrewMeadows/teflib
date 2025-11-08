@@ -80,11 +80,35 @@ There is a little more to it because tracing shouldn't be enabled by default: yo
 There are many ways to do this and the best way will depend on your application's interface.
 Please examine the teflib `example` source code to see one way to do it.
 
+## Dependencies
+**teflib** depends on the [fmt](https://fmt.dev/latest/index.html) library, which is included as a git submodule in `external/fmt`.
+
 ## To build:
-1. In `teflib/` main directory:
-    1. `mkdir build`
-    1. `cd build`
-1. In `teflib/build/` directory:
-    1. `cmake -DCMAKE_BUILD_TYPE=Release ../`
-    1. `make`
+1. Clone the repository and initialize submodules:
+    ```bash
+    git clone <repository-url>
+    cd teflib
+    git submodule update --init --recursive
+    ```
+
+2. Generate the build system and configure for out-of-source build:
+    ```bash
+    autoreconf -i
+    mkdir build
+    cd build
+    ../configure
+    ```
+
+3. Build:
+    ```bash
+    make
+    ```
+
+4. (Optional) Install:
+    ```bash
+    sudo make install
+    ```
+
+All generated files and build outputs will be in the `build/` directory, keeping the source tree clean.
+The example program will be built in `build/example/example`.
 

@@ -1,0 +1,6 @@
+[submodule "/local/leviathan/teflib/external/fmt"]
+	path = /local/leviathan/teflib/external/fmt
+	url = https://github.com/fmtlib/fmt.git
+[submodule "external/fmt"]
+	path = external/fmt
+	url = https://github.com/fmtlib/fmt

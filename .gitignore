@@ -36,3 +36,23 @@ build/
 
 # VIM swp files
 *.swp
+
+# autoconf/automake artifacts
+Makefile
+Makefile.in
+aclocal.m4
+autom4te.cache/
+config.log
+config.status
+configure
+configure~
+depcomp
+install-sh
+ar-lib
+compile
+missing
+stamp-h1
+.deps/
+.dirstamp
+*.Plo
+*.Po
