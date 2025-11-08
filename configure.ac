@@ -30,7 +30,7 @@ if test -f "$srcdir/external/fmt/include/fmt/core.h"; then
     AC_MSG_RESULT([yes])
     FMT_CPPFLAGS="-I\$(top_srcdir)/external/fmt/include"
     FMT_LDFLAGS=""
-    FMT_LIBS="\$(top_builddir)/external/fmt/libfmt.a"
+    FMT_LIBS="\$(top_builddir)/build/external/libfmt.a"
 else
     AC_MSG_ERROR([fmt library not found in external/fmt])
 fi
@@ -42,7 +42,6 @@ AC_SUBST([FMT_LIBS])
 AC_CONFIG_FILES([
     Makefile
     external/Makefile
-    external/fmt/Makefile
     src/Makefile
     example/Makefile
 ])
