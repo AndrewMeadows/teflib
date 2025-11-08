@@ -91,10 +91,12 @@ Please examine the teflib `example` source code to see one way to do it.
     git submodule update --init --recursive
     ```
 
-2. Generate the build system:
+2. Generate the build system and configure for out-of-source build:
     ```bash
     autoreconf -i
-    ./configure
+    mkdir build
+    cd build
+    ../configure
     ```
 
 3. Build:
@@ -107,5 +109,6 @@ Please examine the teflib `example` source code to see one way to do it.
     sudo make install
     ```
 
-The example program will be built in `example/example`.
+All generated files and build outputs will be in the `build/` directory, keeping the source tree clean.
+The example program will be built in `build/example/example`.
 

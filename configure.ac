@@ -1,5 +1,14 @@
 AC_INIT([teflib], [1.0], [])
 AM_INIT_AUTOMAKE([-Wall -Werror foreign subdir-objects])
+
+# Determine if we're doing an out-of-source build
+AC_MSG_CHECKING([for out-of-source build])
+if test "$srcdir" != "." ; then
+    AC_MSG_RESULT([yes (builddir: $ac_pwd)])
+else
+    AC_MSG_RESULT([no - consider using: mkdir build && cd build && ../configure])
+fi
+
 AC_PROG_CXX
 AC_PROG_RANLIB
 AM_PROG_AR
