@@ -71,8 +71,7 @@ void exit_handler(int32_t signum ) {
 #ifdef USE_TEF
 
 void trace_handler(int32_t signum) {
-    // g_trace_consumer was created in TRACE_GLOBAL_INIT
-    if (!g_trace_consumer) {
+    if (!TRACE_IS_ACTIVE()) {
         // we don't yet have a consumer,
         // so we create one and add it to the Tracer
         // which will enable tracing and cause it to start collecting events
@@ -83,18 +82,17 @@ void trace_handler(int32_t signum) {
         std::string filename = fmt::format("/tmp/{}-trace.json", timestamp);
         LOG("START trace file={} lifetime={}msec\n", filename, TRACE_LIFETIME);
 
-        g_trace_consumer = std::make_unique<tef::Trace_to_file>(TRACE_LIFETIME, filename);
-        tef::Tracer::instance().add_consumer(g_trace_consumer.get());
+        TRACE_START(TRACE_LIFETIME, filename)
         fmt::print("press 'CTRL-C' again to toggle tracing OFF\n");
     } else {
         // we already have consumer,
         // so we interpret this signal as a desire to stop tracing early
         // --> update it with a low expiry and the Tracer will finish it
         // on next mainloop.
-        g_trace_consumer->update_expiry(0);
-        const std::string& filename = g_trace_consumer->get_filename();
+        std::string filename = TRACE_GET_FILENAME();
         LOG("STOP trace file={}\n", filename);
-        // Note: g_trace_consumer will automatically expire after 10 seconds,
+        TRACE_STOP_EARLY()
+        // Note: the trace consumer will automatically expire after 10 seconds,
         // even if a second signal never arrives to toggle it off.  This to
         // prevent the trace results file from getting too big: the chrome
         // browser can crash/lock-up when trying to load too much data.
@@ -162,7 +160,6 @@ void run_another_side_thread() {
 }
 
 int32_t main(int32_t argc, char** argv) {
-    fmt::print("press 'CTRL-C' to toggle tracing ON\n");
     // name the process
     TRACE_PROCESS("example");
 
@@ -176,7 +173,12 @@ int32_t main(int32_t argc, char** argv) {
     signal(SIGTERM, exit_handler);
 #ifdef USE_TEF
     // register a handler to toggle tracing on/off
+    fmt::print("press 'CTRL-C' to toggle tracing ON\n");
     signal(SIGUSR2, trace_handler);
+# else
+    fmt::print("TEFlib not enabled because USE_TEF is undefined\n");
+    fmt::print("press 'CTRL-C' to stop the app\n");
+    signal(SIGUSR2, exit_handler);
 #endif
 
     constexpr int32_t NUM_THREADS = 2;
