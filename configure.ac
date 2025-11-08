@@ -27,7 +27,8 @@ else
 fi
 AM_CONDITIONAL([USE_TEF], [test x$use_tef = xtrue])
 
-# Require C++14 - handled in Makefile.am files via -std=c++14
+# Require C++17
+CXXFLAGS="$CXXFLAGS -std=c++17"
 
 # Initialize git submodules if needed
 AC_MSG_CHECKING([for git submodules])
