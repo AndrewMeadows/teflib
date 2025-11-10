@@ -13,7 +13,22 @@ AC_PROG_CXX
 AC_PROG_RANLIB
 AM_PROG_AR
 
-# Require C++14 - handled in Makefile.am files via -std=c++14
+# Set ARFLAGS to avoid 'u' modifier warning (modern ar uses 'D' by default)
+AC_SUBST([ARFLAGS], [cr])
+
+# Check for USE_TEF environment variable
+AC_MSG_CHECKING([whether to enable tracing])
+if test "x$USE_TEF" != "x"; then
+    AC_MSG_RESULT([yes])
+    use_tef=true
+else
+    AC_MSG_RESULT([no])
+    use_tef=false
+fi
+AM_CONDITIONAL([USE_TEF], [test x$use_tef = xtrue])
+
+# Require C++17
+CXXFLAGS="$CXXFLAGS -std=c++17"
 
 # Initialize git submodules if needed
 AC_MSG_CHECKING([for git submodules])

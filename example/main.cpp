@@ -34,7 +34,44 @@ bool g_running = false;
 int32_t g_num_exit_signals = 0;
 int32_t g_exit_value = 0;
 
+// teflib uses registered strings to avoid string operations when events are created.
+// You use the TRACE_REGISTER_STRING macro to explicitly register the strings by index
+// and then use the index in the TRACE_CONTEXT macro.
+//
+// There is room for 256 registered strings. All indices are available: it is ok to
+// spread them out.
+
+// TRACE string indices
+constexpr uint8_t HARVEST_CTX = 0;
+constexpr uint8_t MAINLOOOP_CTX = 1;
+constexpr uint8_t SHUFFLE_CTX = 2;
+constexpr uint8_t SLEEP_CTX = 3;
+constexpr uint8_t SORT_CTX = 4;
+constexpr uint8_t WORK_CTX = 5;
+
+constexpr uint8_t PERF_CAT = 100;
+
+constexpr uint8_t DATA_SIZE_ARG = 200;
+constexpr uint8_t NUM_EVENTS_ARG = 200;
+
+
 TRACE_GLOBAL_INIT
+
+void init_trace_strings() {
+    // Note: registering strings is not threadsafe,
+    // so best to register them all early on the main thread.
+    TRACE_REGISTER_STRING(HARVEST_CTX, "harvest");
+    TRACE_REGISTER_STRING(MAINLOOOP_CTX, "mainloop");
+    TRACE_REGISTER_STRING(SHUFFLE_CTX, "shuffle");
+    TRACE_REGISTER_STRING(SLEEP_CTX, "sleep");
+    TRACE_REGISTER_STRING(SORT_CTX, "sort");
+    TRACE_REGISTER_STRING(WORK_CTX, "work");
+
+    TRACE_REGISTER_STRING(PERF_CAT, "perf");
+
+    TRACE_REGISTER_STRING(DATA_SIZE_ARG, "data_size");
+    TRACE_REGISTER_STRING(DATA_SIZE_ARG, "num_events");
+}
 
 void exit_handler(int32_t signum ) {
     ++g_num_exit_signals;
@@ -71,8 +108,7 @@ void exit_handler(int32_t signum ) {
 #ifdef USE_TEF
 
 void trace_handler(int32_t signum) {
-    // g_trace_consumer was created in TRACE_GLOBAL_INIT
-    if (!g_trace_consumer) {
+    if (!TRACE_IS_ACTIVE()) {
         // we don't yet have a consumer,
         // so we create one and add it to the Tracer
         // which will enable tracing and cause it to start collecting events
@@ -83,18 +119,17 @@ void trace_handler(int32_t signum) {
         std::string filename = fmt::format("/tmp/{}-trace.json", timestamp);
         LOG("START trace file={} lifetime={}msec\n", filename, TRACE_LIFETIME);
 
-        g_trace_consumer = std::make_unique<tef::Trace_to_file>(TRACE_LIFETIME, filename);
-        tef::Tracer::instance().add_consumer(g_trace_consumer.get());
+        TRACE_START(TRACE_LIFETIME, filename)
         fmt::print("press 'CTRL-C' again to toggle tracing OFF\n");
     } else {
         // we already have consumer,
         // so we interpret this signal as a desire to stop tracing early
         // --> update it with a low expiry and the Tracer will finish it
         // on next mainloop.
-        g_trace_consumer->update_expiry(0);
-        const std::string& filename = g_trace_consumer->get_filename();
+        std::string filename = TRACE_GET_FILENAME();
         LOG("STOP trace file={}\n", filename);
-        // Note: g_trace_consumer will automatically expire after 10 seconds,
+        TRACE_STOP_EARLY()
+        // Note: the trace consumer will automatically expire after 10 seconds,
         // even if a second signal never arrives to toggle it off.  This to
         // prevent the trace results file from getting too big: the chrome
         // browser can crash/lock-up when trying to load too much data.
@@ -109,12 +144,12 @@ using Data = std::vector<uint32_t>;
 // example do_work() method is for consuming CPU cycles
 size_t do_work(Data& data) {
     {
-        TRACE_CONTEXT("shuffle", "perf");
+        TRACE_CONTEXT(SHUFFLE_CTX, PERF_CAT);
         std::random_device rd;
         std::mt19937 g(rd());
         std::shuffle(data.begin(), data.end(), g);
     }
-    TRACE_CONTEXT("sort", "perf");
+    TRACE_CONTEXT(SORT_CTX, PERF_CAT);
     std::sort(data.begin(), data.end());
     return data.size();
 }
@@ -131,14 +166,16 @@ void run_side_thread() {
     for (size_t i = 0; i < NUM_DATA; ++i) {
         data[i] = uint32_t(i);
     }
+
     // loop
     while (g_running) {
-        TRACE_CONTEXT("work", "perf");
+        // Use the registered indices to avoid repeated allocations
+        TRACE_CONTEXT(WORK_CTX, PERF_CAT);
         size_t data_size = do_work(data);
         // add an 'arg' to the current trace context
         // this is just an example of how to make details
         // visible to the chrome://tracing browser
-        TRACE_CONTEXT_ARGS("\"data_size\":{}", data_size);
+        TRACE_CONTEXT_ARG(DATA_SIZE_ARG, data_size);
     }
     LOG("run_side_thread... {}\n", "DONE");
 }
@@ -153,16 +190,18 @@ void run_another_side_thread() {
     for (size_t i = 0; i < NUM_DATA; ++i) {
         data[i] = i;
     }
+
     while (g_running) {
-        TRACE_CONTEXT("work", "perf");
+        TRACE_CONTEXT(WORK_CTX, PERF_CAT);
         size_t data_size = do_work(data);
-        TRACE_CONTEXT_ARGS("\"data_size\":{}", data_size);
+        TRACE_CONTEXT_ARG(DATA_SIZE_ARG, data_size);
     }
     LOG("run_another_side_thread... {}\n", "DONE");
 }
 
 int32_t main(int32_t argc, char** argv) {
-    fmt::print("press 'CTRL-C' to toggle tracing ON\n");
+    init_trace_strings();
+
     // name the process
     TRACE_PROCESS("example");
 
@@ -176,7 +215,12 @@ int32_t main(int32_t argc, char** argv) {
     signal(SIGTERM, exit_handler);
 #ifdef USE_TEF
     // register a handler to toggle tracing on/off
+    fmt::print("press 'CTRL-C' to toggle tracing ON\n");
     signal(SIGUSR2, trace_handler);
+# else
+    fmt::print("TEFlib not enabled because USE_TEF is undefined\n");
+    fmt::print("press 'CTRL-C' to stop the app\n");
+    signal(SIGUSR2, exit_handler);
 #endif
 
     constexpr int32_t NUM_THREADS = 2;
@@ -196,28 +240,28 @@ int32_t main(int32_t argc, char** argv) {
 
     LOG("start mainloop num_data={}\n", NUM_DATA);
     while (g_running) {
-        TRACE_CONTEXT("mainloop", "perf");
+        TRACE_CONTEXT(MAINLOOOP_CTX, PERF_CAT);
         {
             // main loop also does work
-            TRACE_CONTEXT("work", "perf");
+            TRACE_CONTEXT(WORK_CTX, PERF_CAT);
             size_t data_size = do_work(data);
-            TRACE_CONTEXT_ARGS("\"data_size\":{}", data_size);
+            TRACE_CONTEXT_ARG(DATA_SIZE_ARG, data_size);
         }
 
         {
             // We can even trace around the tracer itself
-            TRACE_CONTEXT("harvest", "perf");
+            TRACE_CONTEXT(HARVEST_CTX, PERF_CAT);
 
             // for fun we add an 'arg' to this event:
             // num_events will be visible in chrome://tracing browser
-            TRACE_CONTEXT_ARGS("\"num_events\":{}", tef::Tracer::instance().get_num_events());
+            TRACE_CONTEXT_ARG(NUM_EVENTS_ARG, tef::Tracer::instance().get_num_events());
 
             // do TRACE harvest/maintenance
             TRACE_MAINLOOP
         }
 
         {
-            TRACE_CONTEXT("sleep", "perf");
+            TRACE_CONTEXT(SLEEP_CTX, PERF_CAT);
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }

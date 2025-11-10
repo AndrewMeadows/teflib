@@ -33,10 +33,10 @@ int main() {
 
     // optional: at start of any thread:
     TRACE_THREAD("thread name");
- 
+
     ...
-   
-    while (looping) { 
+
+    while (looping) {
         // in main loop:
         TRACE_MAINLOOP;
 
@@ -45,7 +45,7 @@ int main() {
 
     // after main loop, before exit:
     TRACE_CLEANUP;
-    
+
     ...
 
     return value;
@@ -101,6 +101,8 @@ Please examine the teflib `example` source code to see one way to do it.
 
 3. Build:
     ```bash
+    # define USE_TEF env variable to enable TEF in the example
+    export USE_TEF=1
     make
     ```
 

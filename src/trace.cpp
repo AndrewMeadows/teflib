@@ -41,58 +41,60 @@ std::string Tracer::thread_id_as_string() {
     return tid_str.str();
 }
 
-void Tracer::add_event(const std::string& name, const std::string& cat, Phase ph, uint64_t ts, uint64_t dur) {
+void Tracer::add_event(uint8_t name, uint8_t categories, Phase ph, uint64_t ts, uint64_t dur) {
     if (_enabled) {
         if (ts == 0)
         {
             ts = Tracer::instance().now();
         }
         std::lock_guard<std::mutex> lock(_event_mutex);
-        _events.push_back({name, cat, ts, dur, std::this_thread::get_id(), -1, ph});
+        _events.push_back({name, categories, ts, dur, std::this_thread::get_id(), -1, ph});
     }
 }
 
 void Tracer::add_event_with_args(
-        const std::string& name,
-        const std::string& cat,
+        uint8_t name,
+        uint8_t categories,
         Phase ph,
-        const std::string& args,
+        const std::vector<Arg>& args,
         uint64_t ts,
         uint64_t dur)
 {
     if (_enabled) {
         if (ts == 0)
         {
-            ts = Tracer::instance().now();
+            ts = now();
         }
         std::lock_guard<std::mutex> lock(_event_mutex);
-        int32_t args_index = (int32_t)(_args.size());
-        _args.push_back(args);
-        _events.push_back({name, cat, ts, dur, std::this_thread::get_id(), args_index, ph});
+        int32_t args_index = (int32_t)(_arg_lists.size());
+        _arg_lists.push_back(args);
+        _events.push_back({name, categories, ts, dur, std::this_thread::get_id(), args_index, ph});
     }
 }
 
 void Tracer::set_counter(
-        const std::string& name,
-        const std::string& cat,
+        uint8_t name,
+        uint8_t categories,
         int64_t count)
 {
+    /* TODO re-implement this sans string manipulations. String manipulation should happen at harvest.
     if (_enabled) {
+        std::lock_guard<std::mutex> lock(_event_mutex);
 #ifdef NO_FMT
         std::string args = "\"";
-        args.append(name);
+        args.append(_registered_strings[name]);
         args.append("\":");
         std::ostringstream ss;
         ss << count;
         args.append(ss.str());
 #else
-        std::string args = fmt::format("\"{}\":{}", name, count);
+        std::string args = fmt::format("\"{}\":{}", _registered_strings[name], count);
 #endif // NO_FMT
-        std::lock_guard<std::mutex> lock(_event_mutex);
         int32_t args_index = (int32_t)(_args.size());
         _args.push_back(args);
-        _events.push_back({name, cat, now(), 0, std::this_thread::get_id(), args_index, Phase::Counter});
+        _events.push_back({name, categories, now(), 0, std::this_thread::get_id(), args_index, Phase::Counter});
     }
+    */
 }
 
 void Tracer::add_meta_event(const std::string& type, const std::string& arg) {
@@ -170,41 +172,60 @@ void Tracer::advance_consumers() {
 
     // swap events out
     std::vector<Event> events;
-    std::vector<std::string> args;
+    std::vector< std::vector<Arg> > arg_lists;
     {
         std::lock_guard<std::mutex> lock(_event_mutex);
         events.swap(_events);
-        args.swap(_args);
+        arg_lists.swap(_arg_lists);
     }
 
     if (_consumers.empty()) {
         return;
     }
 
+    // According to this document:
+    //     https://docs.google.com/document/d/1CvAClvFfyA5R-PhYUmn5OOQtYMH4h6I0nSsKchNAySU/preview?tab=t.0
+    // an example event JSON string looks like this:
+    // {
+    //    "name": "myName",
+    //    "cat": "category,list",
+    //    "ph": "B",
+    //    "ts": 12345,
+    //    "pid": 123,
+    //    "tid": 456,
+    //    "args": {
+    //      "someArg": 1,
+    //      "anotherArg": {
+    //        "value": "my value"
+    //      }
+    //    }
+    //  }
+    //
+    // Where:
+    //   name = human readable name for the event
+    //   cat = comma separated words used for filtering
+    //   ph = phase type
+    //   ts = timestamp
+    //   dur = duration
+    //   tid = thread_id
+    //   pid = process_id
+    //   args = JSON map of special info
+
     // convert events to strings
     std::vector<std::string> event_strings;
     std::string ph_str("a");
     for (size_t i = 0; i < events.size(); ++i) {
-        // For reference:
-        //
-        //   name = human readable name for the event
-        //   cat = comma separated strings used for filtering
-        //   ph = phase type
-        //   ts = timestamp
-        //   dur = duration
-        //   tid = thread_id
-        //   pid = process_id
-        //   args = JSON string of special info
-
         const auto& event = events[i];
+        const std::string& name = _registered_strings[event.name];
+        const std::string& categories = _registered_strings[event.categories];
         // for speed we use fmt formatting where possible...
         ph_str[0] = event.ph;
         std::ostringstream stream;
         if (event.ph == Phase::Complete)
         {
 #ifdef NO_FMT
-            stream << "{\"name\":\"" << event.name << "\""
-                << ",\"cat\":\"" << event.cat << "\""
+            stream << "{\"name\":\"" << name << "\""
+                << ",\"cat\":\"" << categories << "\""
                 << ",\"ph\":\"" << ph_str << "\""
                 << ",\"ts\":" << event.ts
                 << ",\"dur\":" << event.dur
@@ -212,27 +233,47 @@ void Tracer::advance_consumers() {
 #else
             stream << fmt::format(
                     "{{\"name\":\"{}\",\"cat\":\"{}\",\"ph\":\"{}\",\"ts\":{},\"dur\":{},\"pid\":1",
-                    event.name, event.cat, ph_str, event.ts, event.dur);
+                    name, categories, ph_str, event.ts, event.dur);
 #endif // NO_FMT
         }
         else
         {
 #ifdef NO_FMT
-            stream << "{\"name\":\"" << event.name << "\""
-                << ",\"cat\":\"" << event.cat << "\""
+            stream << "{\"name\":\"" << name << "\""
+                << ",\"cat\":\"" << categories << "\""
                 << ",\"ph\":\"" << ph_str << "\""
                 << ",\"ts\":" << event.ts
                 << ",\"pid\":1";
 #else
             stream << fmt::format(
                     "{{\"name\":\"{}\",\"cat\":\"{}\",\"ph\":\"{}\",\"ts\":{},\"pid\":1",
-                    event.name, event.cat, ph_str, event.ts);
+                    name, categories, ph_str, event.ts);
 #endif // NO_FMT
         }
-        // and std::ostream formatting when necessary...
+        // ...and use std::ostream formatting when necessary.
         stream << ",\"tid\":" << event.tid;
         if (event.args_index != -1) {
-            stream << ",\"args\":" << args[event.args_index];
+            std::vector<Arg>& args = arg_lists[event.args_index];
+            // build the "args" string which should be valid JSON:
+            //    "args": {
+            //      "someArg": 1,
+            //      "anotherArg": {
+            //        "value": "my value"
+            //      }
+            //    }
+            //
+            std::ostringstream s;
+            stream << ",\"args\":{";
+            for (size_t i = 0; i < args.size() - 1; ++i)
+            {
+                stream << args[i].json_str(_registered_strings);
+                stream << ",";
+            }
+            if (args.size() > 0)
+            {
+                stream << args[args.size() - 1].json_str(_registered_strings);
+            }
+            stream << "}";
         }
         stream << "}";
         event_strings.push_back(stream.str());
@@ -305,6 +346,13 @@ void Tracer::add_consumer(Tracer::Consumer* consumer) {
             TEFLIB_TRACE_LOG("trace enabled={}\n", _enabled);
         }
     }
+}
+
+void Tracer::register_string(uint8_t index, const std::string& str) {
+    // Note: _registered_strings is NOT behind a mutex, which means it isn't thread-safe
+    // to register strings in a multi-threaded fashion.  Do all string registration early
+    // on the main thread.
+    _registered_strings[index] = str;
 }
 
 void Tracer::remove_consumer(Tracer::Consumer* consumer) {

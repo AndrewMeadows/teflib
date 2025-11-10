@@ -5,7 +5,7 @@ libfmt_a_SOURCES = \
     fmt/src/format.cc \
     fmt/src/os.cc
 
-libfmt_a_CPPFLAGS = -I$(srcdir)/fmt/include -std=c++14
+libfmt_a_CPPFLAGS = -I$(srcdir)/fmt/include
 
 # Copy libfmt.a to build/external after building
 all-local:
