@@ -51,6 +51,9 @@ constexpr uint8_t WORK_CTX = 5;
 
 constexpr uint8_t PERF_CAT = 100;
 
+constexpr uint8_t SIDE_THREAD_NAME = 127;
+constexpr uint8_t LOOPS_COUNT = 128;
+
 constexpr uint8_t DATA_SIZE_ARG = 200;
 constexpr uint8_t NUM_EVENTS_ARG = 200;
 
@@ -68,6 +71,9 @@ void init_trace_strings() {
     TRACE_REGISTER_STRING(WORK_CTX, "work");
 
     TRACE_REGISTER_STRING(PERF_CAT, "perf");
+
+    TRACE_REGISTER_STRING(SIDE_THREAD_NAME, "side_thread");
+    TRACE_REGISTER_STRING(LOOPS_COUNT, "num_loops");
 
     TRACE_REGISTER_STRING(DATA_SIZE_ARG, "data_size");
     TRACE_REGISTER_STRING(DATA_SIZE_ARG, "num_events");
@@ -168,6 +174,7 @@ void run_side_thread() {
     }
 
     // loop
+    uint32_t count = 0;
     while (g_running) {
         // Use the registered indices to avoid repeated allocations
         TRACE_CONTEXT(WORK_CTX, PERF_CAT);
@@ -176,6 +183,14 @@ void run_side_thread() {
         // this is just an example of how to make details
         // visible to the chrome://tracing browser
         TRACE_CONTEXT_ARG(DATA_SIZE_ARG, data_size);
+
+        // we reset count just to make the report plot more interesting
+        // than a monotonically increasing line
+        ++count;
+        if (0 == (count % 256)) {
+            count = 0;
+        }
+        TRACE_COUNTER(SIDE_THREAD_NAME, LOOPS_COUNT, count);
     }
     LOG("run_side_thread... {}\n", "DONE");
 }

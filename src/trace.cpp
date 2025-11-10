@@ -66,7 +66,7 @@ void Tracer::add_event_with_args(
             ts = now();
         }
         std::lock_guard<std::mutex> lock(_event_mutex);
-        int32_t args_index = (int32_t)(_arg_lists.size());
+        int32_t args_index = int32_t(_arg_lists.size());
         _arg_lists.push_back(args);
         _events.push_back({name, categories, ts, dur, std::this_thread::get_id(), args_index, ph});
     }
@@ -74,27 +74,21 @@ void Tracer::add_event_with_args(
 
 void Tracer::set_counter(
         uint8_t name,
-        uint8_t categories,
+        uint8_t count_name,
         int64_t count)
 {
-    /* TODO re-implement this sans string manipulations. String manipulation should happen at harvest.
     if (_enabled) {
         std::lock_guard<std::mutex> lock(_event_mutex);
-#ifdef NO_FMT
-        std::string args = "\"";
-        args.append(_registered_strings[name]);
-        args.append("\":");
-        std::ostringstream ss;
-        ss << count;
-        args.append(ss.str());
-#else
-        std::string args = fmt::format("\"{}\":{}", _registered_strings[name], count);
-#endif // NO_FMT
-        int32_t args_index = (int32_t)(_args.size());
-        _args.push_back(args);
-        _events.push_back({name, categories, now(), 0, std::this_thread::get_id(), args_index, Phase::Counter});
+        // the actual count info gets stored in "args"
+        std::vector<Arg> args;
+        args.push_back({count_name, count});
+        int32_t args_index = int32_t(_arg_lists.size());
+        _arg_lists.push_back(args);
+        // Note: counter events in TEF lack a "cat" field, however to satisfy our own API for
+        // the Event struct we recycle "count_name" for the "categories" argument.  When it
+        // is time to generate the report the "categories" value won't be used for Counters.
+        _events.push_back({name, count_name, now(), 0, std::this_thread::get_id(), args_index, Phase::Counter});
     }
-    */
 }
 
 void Tracer::add_meta_event(const std::string& type, const std::string& arg) {
@@ -221,8 +215,7 @@ void Tracer::advance_consumers() {
         // for speed we use fmt formatting where possible...
         ph_str[0] = event.ph;
         std::ostringstream stream;
-        if (event.ph == Phase::Complete)
-        {
+        if (event.ph == Phase::Complete) {
 #ifdef NO_FMT
             stream << "{\"name\":\"" << name << "\""
                 << ",\"cat\":\"" << categories << "\""
@@ -235,9 +228,19 @@ void Tracer::advance_consumers() {
                     "{{\"name\":\"{}\",\"cat\":\"{}\",\"ph\":\"{}\",\"ts\":{},\"dur\":{},\"pid\":1",
                     name, categories, ph_str, event.ts, event.dur);
 #endif // NO_FMT
-        }
-        else
-        {
+        } else if (event.ph == Phase::Counter) {
+            // counters don't have "cat" or "dur"
+#ifdef NO_FMT
+            stream << "{\"name\":\"" << name << "\""
+                << ",\"ph\":\"" << ph_str << "\""
+                << ",\"ts\":" << event.ts
+                << ",\"pid\":1";
+#else
+            stream << fmt::format(
+                    "{{\"name\":\"{}\",\"ph\":\"{}\",\"ts\":{},\"pid\":1",
+                    name, ph_str, event.ts);
+#endif // NO_FMT
+        } else {
 #ifdef NO_FMT
             stream << "{\"name\":\"" << name << "\""
                 << ",\"cat\":\"" << categories << "\""
