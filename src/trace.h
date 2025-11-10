@@ -3,7 +3,7 @@
 //  Distributed under the Apache License, Version 2.0.
 //  See the accompanying file LICENSE or http://www.apache.org/licenses/LICENSE-2.0.html
 //
-// teflib is a C++ utility for producing data as per the Google Trace Event Format (TEF):
+// teflib is a C++ utility for generating trace report data as per the Google Trace Event Format (TEF):
 //
 //     https://docs.google.com/document/d/1CvAClvFfyA5R-PhYUmn5OOQtYMH4h6I0nSsKchNAySU/edit#heading=h.yr4qxyxotyw
 //
@@ -80,6 +80,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <variant>
 #include <vector>
 
 // to avoid dependency on fmt compile with -DNO_FMT
@@ -139,9 +140,87 @@ enum Phase : char {
 
 uint64_t get_now_msec();
 
+
 // Note: Tracer is a singleton
 class Tracer {
 public:
+    using Variant = std::variant<std::monostate, int32_t, uint32_t, int64_t, uint64_t, float, double, std::string_view>;
+    using KeyedVariant = std::pair< uint8_t, Variant >;
+
+    class Arg {
+    public:
+        Arg(uint8_t key, Variant value) : _value(value), _key(key) {}
+
+        std::string json_str(const std::vector<std::string>& registered_strings) {
+            if (_json_string.empty())
+            {
+                // _json_string hasn't been created yet, so we do it now
+                const std::string& key_str(registered_strings[_key]);
+#ifdef NO_FMT
+                _json_string = "\"" + key_str + "\":";
+
+                std::visit([this](auto arg) {
+                    using T = decltype(arg);
+                    if constexpr (std::is_same_v<T, std::monostate>) {
+                        _json_string += "null";
+                    } else if constexpr (std::is_same_v<T, std::string_view>) {
+                        _json_string += "\"" + std::string(arg) + "\"";
+                    } else {
+                        _json_string += std::to_string(arg);
+                    }
+                }, _value);
+#else
+                std::visit([this, &key_str](auto arg) {
+                    using T = decltype(arg);
+                    if constexpr (std::is_same_v<T, std::monostate>) {
+                        _json_string = fmt::format("\"{}\": null", key_str);
+                    } else if constexpr (std::is_same_v<T, std::string_view>) {
+                        _json_string = fmt::format("\"{}\": \"{}\"", key_str, arg);
+                    } else {
+                        _json_string = fmt::format("\"{}\": {}", key_str, arg);
+                    }
+                }, _value);
+#endif
+            }
+            return _json_string;
+        }
+
+    public:
+        std::string _json_string;
+        Variant _value;
+        uint8_t _key;
+    };
+
+    // Context measures timestamp in ctor
+    // and adds a Phase::Complete event to Tracer in dtor
+    class Context {
+    public:
+        friend Tracer;
+
+        Context(uint8_t name, uint8_t categories)
+            : _name(name), _categories(categories)
+        {
+            _ts= Tracer::instance().now();
+        }
+
+        ~Context() {
+            if (_args.empty()) {
+                Tracer::instance().add_event(_name, _categories, Phase::Complete, _ts, Tracer::instance().now() - _ts);
+            } else {
+                Tracer::instance().add_event_with_args(_name, _categories, Phase::Complete, _args, _ts, Tracer::instance().now() - _ts);
+            }
+
+        }
+
+        // add an optional Arg to this Context
+        void add_arg(const KeyedVariant& kv) { _args.push_back({kv.first, kv.second}); }
+
+    protected:
+        std::vector<Arg> _args; // optional list of name_index:variant_value pairs
+        uint64_t _ts; // timestamp
+        uint8_t _name; // index to registered name string
+        uint8_t _categories; // index to registered string of comma separated category words
+    };
 
     // To harvest trace events the pattern is:
     // (1) Create a Consumer and give pointer to Tracer
@@ -230,14 +309,20 @@ public:
         return t;
     }
 
+    // simple method for manually adding an event without args
     void add_event(uint8_t name, uint8_t categories, Phase ph, uint64_t ts=0, uint64_t dur=0);
+
+    // simple method for manually adding events with already formatted arg string
+    // (needs to be properly formatted JSON map).
     void add_event_with_args(
             uint8_t name,
             uint8_t categories,
             Phase ph,
-            const std::string& args,
+            const std::vector<Arg>& args,
             uint64_t ts=0, uint64_t dur=0);
-    void set_counter(uint8_t name, uint8_t categories, int64_t count);
+
+    // TODO: implement the ability to update a trace counter // not yet supported
+    void set_counter(uint8_t name, uint8_t categories, int64_t count); // not yet supported // not yet supported
 
     // type = process_name, process_labels, or thread_name
     void add_meta_event(const std::string& type, const std::string& arg);
@@ -284,7 +369,7 @@ private:
 
     std::vector<Event> _events;
     std::vector<std::string> _meta_events;
-    std::vector<std::string> _args;
+    std::vector< std::vector<Arg> > _arg_lists;
     std::vector<std::string> _registered_strings; // pre-allocated to 256 elements
     std::atomic<bool> _enabled { false };
     mutable uint64_t _last_t { 0 };
@@ -293,24 +378,6 @@ private:
     void operator=(Tracer const&); // Don't implement
 };
 
-// Context measures timestamp in ctor
-// and creates a Phase::Complete event in dtor
-class Context {
-public:
-    Context(uint8_t name, uint8_t categories)
-        : _name(name), _categories(categories)
-    {
-        _ts= Tracer::instance().now();
-    }
-
-    ~Context() {
-        Tracer::instance().add_event(_name, _categories, Phase::Complete, _ts, Tracer::instance().now() - _ts);
-    }
-private:
-    uint64_t _ts; // timestamp
-    uint8_t _name; // index to registered name string
-    uint8_t _categories; // index to registered string of comma separated category words
-};
 
 // Trace_to_file is a simple consumer for saving events to file
 class Trace_to_file : public Tracer::Consumer {
@@ -370,25 +437,21 @@ private:
     // Otherwise the process will be given some arbitrary numerical name.
     #define TRACE_PROCESS(name) ::tef::Tracer::instance().add_meta_event("process_name", name);
 
-    // Invoke TRACE_THREAD once per thread to name the thread in the Event stream report.
+    // Invoke TRACE_THREAD once per thread to name the thread in the final report.
     // Otherwise the thread will be given a numerical name.
     #define TRACE_THREAD(name) ::tef::Tracer::instance().add_meta_event("thread_name", name);
 
     // Invoke TRACE_THREAD_SORT once per thread to assign a sorting index when the Trace data
-    // is displayed in the report. Otherwise the threads will be sorted in arbitrary order.
+    // is displayed in the trace browser. Otherwise the threads will be sorted in arbitrary order.
     #define TRACE_THREAD_SORT(index) ::tef::Tracer::instance().add_meta_event("thread_sort_index", index);
 
     // Create trace Events inside the local context.
     // name = index to the registered context name string
     // categories = index to the registered categories string
-    #define TRACE_CONTEXT(name, categories) ::tef::Context _tef_context_(name, categories);
+    #define TRACE_CONTEXT(name, categories) ::tef::Tracer::Context _tef_context_(name, categories);
 
-    // TODO: implement TRACE_CONTEXT_FMT
-    // Add meta data to the active TRACE_CONTEXT
-    // The final data in the report will be the fusion of the pre-registered fmt string
-    // and the numerical value.
-    // For example: fmt="num_loops={}", value=7 --> final_report_string="num_loops=7"
-    #define TRACE_CONTEXT_ARG(fmt, value) TRACE_NOOP;
+    // Add an arg that will be added to the Event in the stream when the report is generated.
+    #define TRACE_CONTEXT_ARG(name, value)  _tef_context_.add_arg({name, value});
 
     // use TRACE_BEGIN/END when you know what you're doing
     // and when TRACE_CONTEXT does not quite do what you need

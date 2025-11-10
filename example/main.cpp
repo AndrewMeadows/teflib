@@ -34,26 +34,43 @@ bool g_running = false;
 int32_t g_num_exit_signals = 0;
 int32_t g_exit_value = 0;
 
+// teflib uses registered strings to avoid string operations when events are created.
+// You use the TRACE_REGISTER_STRING macro to explicitly register the strings by index
+// and then use the index in the TRACE_CONTEXT macro.
+//
+// There is room for 256 registered strings. All indices are available: it is ok to
+// spread them out.
+
 // TRACE string indices
-constexpr uint8_t HARVEST_IDX = 0;
-constexpr uint8_t MAINLOOP_IDX = 1;
-constexpr uint8_t PERF_IDX = 2;
-constexpr uint8_t SHUFFLE_IDX = 3;
-constexpr uint8_t SLEEP_IDX = 4;
-constexpr uint8_t SORT_IDX = 5;
-constexpr uint8_t WORK_IDX = 6;
+constexpr uint8_t HARVEST_CTX = 0;
+constexpr uint8_t MAINLOOOP_CTX = 1;
+constexpr uint8_t SHUFFLE_CTX = 2;
+constexpr uint8_t SLEEP_CTX = 3;
+constexpr uint8_t SORT_CTX = 4;
+constexpr uint8_t WORK_CTX = 5;
+
+constexpr uint8_t PERF_CAT = 100;
+
+constexpr uint8_t DATA_SIZE_ARG = 200;
+constexpr uint8_t NUM_EVENTS_ARG = 200;
+
 
 TRACE_GLOBAL_INIT
 
-
 void init_trace_strings() {
-    TRACE_REGISTER_STRING(HARVEST_IDX, "harvest");
-    TRACE_REGISTER_STRING(MAINLOOP_IDX, "mainloop");
-    TRACE_REGISTER_STRING(PERF_IDX, "perf");
-    TRACE_REGISTER_STRING(SHUFFLE_IDX, "shuffle");
-    TRACE_REGISTER_STRING(SLEEP_IDX, "sleep");
-    TRACE_REGISTER_STRING(SORT_IDX, "sort");
-    TRACE_REGISTER_STRING(WORK_IDX, "work");
+    // Note: registering strings is not threadsafe,
+    // so best to register them all early on the main thread.
+    TRACE_REGISTER_STRING(HARVEST_CTX, "harvest");
+    TRACE_REGISTER_STRING(MAINLOOOP_CTX, "mainloop");
+    TRACE_REGISTER_STRING(SHUFFLE_CTX, "shuffle");
+    TRACE_REGISTER_STRING(SLEEP_CTX, "sleep");
+    TRACE_REGISTER_STRING(SORT_CTX, "sort");
+    TRACE_REGISTER_STRING(WORK_CTX, "work");
+
+    TRACE_REGISTER_STRING(PERF_CAT, "perf");
+
+    TRACE_REGISTER_STRING(DATA_SIZE_ARG, "data_size");
+    TRACE_REGISTER_STRING(DATA_SIZE_ARG, "num_events");
 }
 
 void exit_handler(int32_t signum ) {
@@ -127,12 +144,12 @@ using Data = std::vector<uint32_t>;
 // example do_work() method is for consuming CPU cycles
 size_t do_work(Data& data) {
     {
-        TRACE_CONTEXT(SHUFFLE_IDX, PERF_IDX);
+        TRACE_CONTEXT(SHUFFLE_CTX, PERF_CAT);
         std::random_device rd;
         std::mt19937 g(rd());
         std::shuffle(data.begin(), data.end(), g);
     }
-    TRACE_CONTEXT(SORT_IDX, PERF_IDX);
+    TRACE_CONTEXT(SORT_CTX, PERF_CAT);
     std::sort(data.begin(), data.end());
     return data.size();
 }
@@ -153,12 +170,12 @@ void run_side_thread() {
     // loop
     while (g_running) {
         // Use the registered indices to avoid repeated allocations
-        TRACE_CONTEXT(WORK_IDX, PERF_IDX);
+        TRACE_CONTEXT(WORK_CTX, PERF_CAT);
         size_t data_size = do_work(data);
         // add an 'arg' to the current trace context
         // this is just an example of how to make details
         // visible to the chrome://tracing browser
-        TRACE_CONTEXT_ARG("data_size={}", data_size);
+        TRACE_CONTEXT_ARG(DATA_SIZE_ARG, data_size);
     }
     LOG("run_side_thread... {}\n", "DONE");
 }
@@ -175,9 +192,9 @@ void run_another_side_thread() {
     }
 
     while (g_running) {
-        TRACE_CONTEXT(WORK_IDX, PERF_IDX);
+        TRACE_CONTEXT(WORK_CTX, PERF_CAT);
         size_t data_size = do_work(data);
-        TRACE_CONTEXT_ARG("data_size={}", data_size);
+        TRACE_CONTEXT_ARG(DATA_SIZE_ARG, data_size);
     }
     LOG("run_another_side_thread... {}\n", "DONE");
 }
@@ -223,28 +240,28 @@ int32_t main(int32_t argc, char** argv) {
 
     LOG("start mainloop num_data={}\n", NUM_DATA);
     while (g_running) {
-        TRACE_CONTEXT(MAINLOOP_IDX, PERF_IDX);
+        TRACE_CONTEXT(MAINLOOOP_CTX, PERF_CAT);
         {
             // main loop also does work
-            TRACE_CONTEXT(WORK_IDX, PERF_IDX);
+            TRACE_CONTEXT(WORK_CTX, PERF_CAT);
             size_t data_size = do_work(data);
-            TRACE_CONTEXT_ARG("data_size:{}", data_size);
+            TRACE_CONTEXT_ARG(DATA_SIZE_ARG, data_size);
         }
 
         {
             // We can even trace around the tracer itself
-            TRACE_CONTEXT(HARVEST_IDX, PERF_IDX);
+            TRACE_CONTEXT(HARVEST_CTX, PERF_CAT);
 
             // for fun we add an 'arg' to this event:
             // num_events will be visible in chrome://tracing browser
-            TRACE_CONTEXT_ARG("num_events:{}", tef::Tracer::instance().get_num_events());
+            TRACE_CONTEXT_ARG(NUM_EVENTS_ARG, tef::Tracer::instance().get_num_events());
 
             // do TRACE harvest/maintenance
             TRACE_MAINLOOP
         }
 
         {
-            TRACE_CONTEXT(SLEEP_IDX, PERF_IDX);
+            TRACE_CONTEXT(SLEEP_CTX, PERF_CAT);
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }

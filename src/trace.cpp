@@ -56,18 +56,18 @@ void Tracer::add_event_with_args(
         uint8_t name,
         uint8_t categories,
         Phase ph,
-        const std::string& args,
+        const std::vector<Arg>& args,
         uint64_t ts,
         uint64_t dur)
 {
     if (_enabled) {
         if (ts == 0)
         {
-            ts = Tracer::instance().now();
+            ts = now();
         }
         std::lock_guard<std::mutex> lock(_event_mutex);
-        int32_t args_index = (int32_t)(_args.size());
-        _args.push_back(args);
+        int32_t args_index = (int32_t)(_arg_lists.size());
+        _arg_lists.push_back(args);
         _events.push_back({name, categories, ts, dur, std::this_thread::get_id(), args_index, ph});
     }
 }
@@ -77,6 +77,7 @@ void Tracer::set_counter(
         uint8_t categories,
         int64_t count)
 {
+    /* TODO re-implement this sans string manipulations. String manipulation should happen at harvest.
     if (_enabled) {
         std::lock_guard<std::mutex> lock(_event_mutex);
 #ifdef NO_FMT
@@ -93,6 +94,7 @@ void Tracer::set_counter(
         _args.push_back(args);
         _events.push_back({name, categories, now(), 0, std::this_thread::get_id(), args_index, Phase::Counter});
     }
+    */
 }
 
 void Tracer::add_meta_event(const std::string& type, const std::string& arg) {
@@ -170,42 +172,52 @@ void Tracer::advance_consumers() {
 
     // swap events out
     std::vector<Event> events;
-    std::vector<std::string> args;
+    std::vector< std::vector<Arg> > arg_lists;
     {
         std::lock_guard<std::mutex> lock(_event_mutex);
         events.swap(_events);
-        args.swap(_args);
+        arg_lists.swap(_arg_lists);
     }
 
     if (_consumers.empty()) {
         return;
     }
 
-    // copy registered_strings under lock
-    std::vector<std::string> registered_strings;
-    {
-        std::lock_guard<std::mutex> lock(_event_mutex);
-        registered_strings = _registered_strings;
-    }
+    // According to this document:
+    //     https://docs.google.com/document/d/1CvAClvFfyA5R-PhYUmn5OOQtYMH4h6I0nSsKchNAySU/preview?tab=t.0
+    // an example event JSON string looks like this:
+    // {
+    //    "name": "myName",
+    //    "cat": "category,list",
+    //    "ph": "B",
+    //    "ts": 12345,
+    //    "pid": 123,
+    //    "tid": 456,
+    //    "args": {
+    //      "someArg": 1,
+    //      "anotherArg": {
+    //        "value": "my value"
+    //      }
+    //    }
+    //  }
+    //
+    // Where:
+    //   name = human readable name for the event
+    //   cat = comma separated words used for filtering
+    //   ph = phase type
+    //   ts = timestamp
+    //   dur = duration
+    //   tid = thread_id
+    //   pid = process_id
+    //   args = JSON map of special info
 
     // convert events to strings
     std::vector<std::string> event_strings;
     std::string ph_str("a");
     for (size_t i = 0; i < events.size(); ++i) {
-        // For reference:
-        //
-        //   name = human readable name for the event
-        //   cat = comma separated words used for filtering
-        //   ph = phase type
-        //   ts = timestamp
-        //   dur = duration
-        //   tid = thread_id
-        //   pid = process_id
-        //   args = JSON string of special info
-
         const auto& event = events[i];
-        const std::string& name = registered_strings[event.name];
-        const std::string& categories = registered_strings[event.categories];
+        const std::string& name = _registered_strings[event.name];
+        const std::string& categories = _registered_strings[event.categories];
         // for speed we use fmt formatting where possible...
         ph_str[0] = event.ph;
         std::ostringstream stream;
@@ -238,10 +250,30 @@ void Tracer::advance_consumers() {
                     name, categories, ph_str, event.ts);
 #endif // NO_FMT
         }
-        // and std::ostream formatting when necessary...
+        // ...and use std::ostream formatting when necessary.
         stream << ",\"tid\":" << event.tid;
         if (event.args_index != -1) {
-            stream << ",\"args\":" << args[event.args_index];
+            std::vector<Arg>& args = arg_lists[event.args_index];
+            // build the "args" string which should be valid JSON:
+            //    "args": {
+            //      "someArg": 1,
+            //      "anotherArg": {
+            //        "value": "my value"
+            //      }
+            //    }
+            //
+            std::ostringstream s;
+            stream << ",\"args\":{";
+            for (size_t i = 0; i < args.size() - 1; ++i)
+            {
+                stream << args[i].json_str(_registered_strings);
+                stream << ",";
+            }
+            if (args.size() > 0)
+            {
+                stream << args[args.size() - 1].json_str(_registered_strings);
+            }
+            stream << "}";
         }
         stream << "}";
         event_strings.push_back(stream.str());
@@ -317,7 +349,9 @@ void Tracer::add_consumer(Tracer::Consumer* consumer) {
 }
 
 void Tracer::register_string(uint8_t index, const std::string& str) {
-    std::lock_guard<std::mutex> lock(_event_mutex);
+    // Note: _registered_strings is NOT behind a mutex, which means it isn't thread-safe
+    // to register strings in a multi-threaded fashion.  Do all string registration early
+    // on the main thread.
     _registered_strings[index] = str;
 }
 
