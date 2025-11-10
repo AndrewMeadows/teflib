@@ -321,8 +321,8 @@ public:
             const std::vector<Arg>& args,
             uint64_t ts=0, uint64_t dur=0);
 
-    // TODO: implement the ability to update a trace counter // not yet supported
-    void set_counter(uint8_t name, uint8_t categories, int64_t count); // not yet supported // not yet supported
+    // adds a "Counter" event
+    void set_counter(uint8_t name, uint8_t count_name, int64_t count);
 
     // type = process_name, process_labels, or thread_name
     void add_meta_event(const std::string& type, const std::string& arg);
@@ -453,6 +453,10 @@ private:
     // Add an arg that will be added to the Event in the stream when the report is generated.
     #define TRACE_CONTEXT_ARG(name, value)  _tef_context_.add_arg({name, value});
 
+    // Add a Counter
+    // TODO: figure out how to support multiple counts
+    #define TRACE_COUNTER(name, count_name, count) ::tef::Tracer::instance().set_counter(name, count_name, int64_t(count));
+
     // use TRACE_BEGIN/END when you know what you're doing
     // and when TRACE_CONTEXT does not quite do what you need
     #define TRACE_BEGIN(name, categories) ::tef::Tracer::instance().add_event(name, categories, ::tef::Phase::DurationBegin);
@@ -462,6 +466,8 @@ private:
     // When USE_TEF is undefined all macros translate to no-ops.
 
     #define TRACE_GLOBAL_INIT int _foo_(){return 0;}
+    #define TRACE_REGISTER_STRING(index, str) TRACE_NOOP;
+
     #define TRACE_START(lifetime_msec, filename) TRACE_NOOP;
     #define TRACE_IS_ACTIVE() false
     #define TRACE_STOP_EARLY() TRACE_NOOP;
@@ -474,8 +480,10 @@ private:
     #define TRACE_THREAD_SORT(index) TRACE_NOOP;
 
     #define TRACE_CONTEXT(name, categories) TRACE_NOOP;
-    #define TRACE_REGISTER_STRING(index, str) TRACE_NOOP;
     #define TRACE_CONTEXT_ARG(fmt, value) TRACE_NOOP;
+
+    #define TRACE_COUNTER(name, count_name, count) TRACE_NOOP;
+
     #define TRACE_BEGIN(name, categories) TRACE_NOOP;
     #define TRACE_END(name, categories) TRACE_NOOP;
 
