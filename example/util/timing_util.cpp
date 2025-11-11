@@ -3,7 +3,8 @@
 
 #include "timing_util.h"
 
-#include <fmt/format.h>
+#include <iomanip>
+#include <sstream>
 
 
 // YYYYMMDD_HH:MM:SS
@@ -31,7 +32,9 @@ std::string timing_util::get_local_datetime_string_with_msec(uint64_t now_msec) 
     auto t = std::localtime(&now_sec_std);
     std::strftime((char*)(s.data()), s.size(), "%Y%m%d_", t);
     std::strftime((char*)(s.data()+9), s.size(), "%T", t);
-    s.append(fmt::format(".{:0<3}", now_msec % MSEC_PER_SECOND));
+    std::ostringstream oss;
+    oss << "." << std::setfill('0') << std::setw(3) << (now_msec % MSEC_PER_SECOND);
+    s.append(oss.str());
     return s;
 }
 

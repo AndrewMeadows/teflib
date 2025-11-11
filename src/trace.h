@@ -83,13 +83,7 @@
 #include <variant>
 #include <vector>
 
-// to avoid dependency on fmt compile with -DNO_FMT
-#define NO_FMT
-#ifdef NO_FMT
 #include <sstream>
-#else
-#include <fmt/format.h>
-#endif
 
 namespace tef {
 
@@ -156,7 +150,6 @@ public:
             {
                 // _json_string hasn't been created yet, so we do it now
                 const std::string& key_str(registered_strings[_key]);
-#ifdef NO_FMT
                 _json_string = "\"" + key_str + "\":";
 
                 std::visit([this](auto arg) {
@@ -169,18 +162,6 @@ public:
                         _json_string += std::to_string(arg);
                     }
                 }, _value);
-#else
-                std::visit([this, &key_str](auto arg) {
-                    using T = decltype(arg);
-                    if constexpr (std::is_same_v<T, std::monostate>) {
-                        _json_string = fmt::format("\"{}\": null", key_str);
-                    } else if constexpr (std::is_same_v<T, std::string_view>) {
-                        _json_string = fmt::format("\"{}\": \"{}\"", key_str, arg);
-                    } else {
-                        _json_string = fmt::format("\"{}\": {}", key_str, arg);
-                    }
-                }, _value);
-#endif
             }
             return _json_string;
         }

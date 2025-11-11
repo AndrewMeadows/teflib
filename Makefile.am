@@ -1,3 +1,3 @@
-SUBDIRS = external src example
+SUBDIRS = src example
 
 EXTRA_DIST = README.md LICENSE

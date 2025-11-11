@@ -23,10 +23,6 @@
 #include "util/timing_util.h"
 #include "util/thread_pool.h"
 
-// uncomment NO_FMT to avoid fmt dependency in teflib
-//#define NO_FMT
-
-#define USE_FMT
 #include "trace.h"
 
 // globals
@@ -81,7 +77,7 @@ void init_trace_strings() {
 
 void exit_handler(int32_t signum ) {
     ++g_num_exit_signals;
-    LOG("received interrupt signal={} count={}\n", signum, g_num_exit_signals);
+    LOG("received interrupt signal=%d count=%d\n", signum, g_num_exit_signals);
 #if USE_TEF
     if (g_num_exit_signals < 3) {
         // toggle tracing
@@ -122,24 +118,24 @@ void trace_handler(int32_t signum) {
         constexpr uint64_t TRACE_LIFETIME = 10 * timing_util::MSEC_PER_SECOND;
         std::string timestamp = timing_util::get_local_datetime_string(timing_util::get_now_msec());
         // filename = /tmp/YYYYMMDD_HH:MM:SS-trace.json
-        std::string filename = fmt::format("/tmp/{}-trace.json", timestamp);
-        LOG("START trace file={} lifetime={}msec\n", filename, TRACE_LIFETIME);
+        std::string filename = "/tmp/" + timestamp + "-trace.json";
+        LOG("START trace file=%s lifetime=%lums\n", filename.c_str(), TRACE_LIFETIME);
 
         TRACE_START(TRACE_LIFETIME, filename)
-        fmt::print("press 'CTRL-C' again to toggle tracing OFF\n");
+        std::cout << "press 'CTRL-C' again to toggle tracing OFF\n";
     } else {
         // we already have consumer,
         // so we interpret this signal as a desire to stop tracing early
         // --> update it with a low expiry and the Tracer will finish it
         // on next mainloop.
         std::string filename = TRACE_GET_FILENAME();
-        LOG("STOP trace file={}\n", filename);
+        LOG("STOP trace file=%s\n", filename.c_str());
         TRACE_STOP_EARLY()
         // Note: the trace consumer will automatically expire after 10 seconds,
         // even if a second signal never arrives to toggle it off.  This to
         // prevent the trace results file from getting too big: the chrome
         // browser can crash/lock-up when trying to load too much data.
-        fmt::print("press 'CTRL-C' one last time to STOP example\n");
+        std::cout << "press 'CTRL-C' one last time to STOP example\n";
     }
 }
 
@@ -165,7 +161,7 @@ void run_side_thread() {
     TRACE_THREAD("side_thread");
 
     constexpr size_t NUM_DATA = 10000;
-    LOG("run_side_thread num_data={}\n", NUM_DATA);
+    LOG("run_side_thread num_data=%zu\n", NUM_DATA);
     // initialize
     Data data;
     data.resize(NUM_DATA);
@@ -192,14 +188,14 @@ void run_side_thread() {
         }
         TRACE_COUNTER(SIDE_THREAD_NAME, LOOPS_COUNT, count);
     }
-    LOG("run_side_thread... {}\n", "DONE");
+    LOG("run_side_thread... %s\n", "DONE");
 }
 
 void run_another_side_thread() {
     // Note: we don't bother to name this thread, so in the trace browser
     // it will have a numerical name.
     constexpr size_t NUM_DATA = 20000;
-    LOG("run_another_side_thread num_data={}\n", NUM_DATA);
+    LOG("run_another_side_thread num_data=%zu\n", NUM_DATA);
     Data data;
     data.resize(NUM_DATA);
     for (size_t i = 0; i < NUM_DATA; ++i) {
@@ -211,7 +207,7 @@ void run_another_side_thread() {
         size_t data_size = do_work(data);
         TRACE_CONTEXT_ARG(DATA_SIZE_ARG, data_size);
     }
-    LOG("run_another_side_thread... {}\n", "DONE");
+    LOG("run_another_side_thread... %s\n", "DONE");
 }
 
 int32_t main(int32_t argc, char** argv) {
@@ -230,11 +226,11 @@ int32_t main(int32_t argc, char** argv) {
     signal(SIGTERM, exit_handler);
 #ifdef USE_TEF
     // register a handler to toggle tracing on/off
-    fmt::print("press 'CTRL-C' to toggle tracing ON\n");
+    std::cout << "press 'CTRL-C' to toggle tracing ON\n";
     signal(SIGUSR2, trace_handler);
 # else
-    fmt::print("TEFlib not enabled because USE_TEF is undefined\n");
-    fmt::print("press 'CTRL-C' to stop the app\n");
+    std::cout << "TEFlib not enabled because USE_TEF is undefined\n";
+    std::cout << "press 'CTRL-C' to stop the app\n";
     signal(SIGUSR2, exit_handler);
 #endif
 
@@ -253,7 +249,7 @@ int32_t main(int32_t argc, char** argv) {
         data[i] = i;
     }
 
-    LOG("start mainloop num_data={}\n", NUM_DATA);
+    LOG("start mainloop num_data=%zu\n", NUM_DATA);
     while (g_running) {
         TRACE_CONTEXT(MAINLOOOP_CTX, PERF_CAT);
         {
