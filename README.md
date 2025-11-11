@@ -12,7 +12,7 @@ It is most commonly used for webpage JavaScript performance analysis however it 
 It does not yet support 100% of the TEF feature set, but it is complete enough for many purposes.
 
 ## How to use teflib?
-**teflib** consists of two files: `trace.h` and `trace.cpp`.  It requires at least **C++-14** and depends on the [fmt](https://fmt.dev/latest/index.html) library.
+**teflib** consists of two files: `trace.h` and `trace.cpp`.  It requires at least **C++-17**.
 The files can be embedded in your own project, or they can be compiled into a library and linked as a dependency.
 
 The simplest pattern is to sprinkle teflib's **helper macros** in your code:
@@ -80,15 +80,11 @@ There is a little more to it because tracing shouldn't be enabled by default: yo
 There are many ways to do this and the best way will depend on your application's interface.
 Please examine the teflib `example` source code to see one way to do it.
 
-## Dependencies
-**teflib** depends on the [fmt](https://fmt.dev/latest/index.html) library, which is included as a git submodule in `external/fmt`.
-
 ## To build:
 1. Clone the repository and initialize submodules:
     ```bash
     git clone <repository-url>
     cd teflib
-    git submodule update --init --recursive
     ```
 
 2. Generate the build system and configure for out-of-source build:
