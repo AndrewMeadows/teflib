@@ -27,6 +27,17 @@ else
 fi
 AM_CONDITIONAL([USE_TEF], [test x$use_tef = xtrue])
 
+# Check for DISABLE_UNIT_TESTS environment variable
+AC_MSG_CHECKING([whether to disable unit tests])
+if test "x$DISABLE_UNIT_TESTS" != "x"; then
+    AC_MSG_RESULT([yes])
+    disable_tests=true
+else
+    AC_MSG_RESULT([no])
+    disable_tests=false
+fi
+AM_CONDITIONAL([ENABLE_UNIT_TESTS], [test x$disable_tests = xfalse])
+
 # Require C++17
 CXXFLAGS="$CXXFLAGS -std=c++17"
 

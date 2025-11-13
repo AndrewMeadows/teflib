@@ -85,6 +85,7 @@ Please examine the teflib `example` source code to see one way to do it.
     ```bash
     git clone <repository-url>
     cd teflib
+    git submodule update --init --recursive
     ```
 
 2. Generate the build system and configure for out-of-source build:
