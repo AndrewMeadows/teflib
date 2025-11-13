@@ -31,43 +31,53 @@
 // (7) Compile project with -DUSE_TEF
 //
 // Example usage:
-//
-//     #include "trace.h"
-//
-//     TRACE_GLOBAL_INIT
-//
-//     // using constexpr for trace string indices isn't required
-//     // but simplifies multi-threaded context of the indices
-//     // and minimizes the compiled runtime overhead
-//     constexpr MY_FUNCTION = 0;
-//     constexpr WORK = 1;
-//
-//     void register_trace_strings {
-//         TRACE_REGISTER_STRING(MY_FUNCTION, "my_function");
-//         TRACE_REGISTER_STRING(WORK, "work");
-//     }
-//
-//     void my_function() {
-//         TRACE_CONTEXT(MY_FUNCTION, WORK);
-//         // ... function body ...
-//     }
-//
-//     int main() {
-//         // init trace strings
-//         register_trace_strings();
-//
-//         // Start tracing to file for 5 seconds
-//         TRACE_START(5000, "trace.json");
-//
-//         while (running) {
-//             TRACE_MAINLOOP
-//             my_function();
-//             // ... other work ...
-//         }
-//
-//         TRACE_SHUTDOWN
-//         return 0;
-//     }
+/*
+    #include <cassert>
+
+    #define USE_TEF
+    #include "trace.h"
+
+    TRACE_GLOBAL_INIT
+
+    // using constexpr for trace string indices isn't required
+    // but simplifies multi-threaded context of the indices
+    // and minimizes the compiled runtime overhead
+    constexpr uint8_t MY_FUNCTION = 0;
+    constexpr uint8_t WORK = 1;
+
+    void register_trace_strings() {
+        TRACE_REGISTER_STRING(MY_FUNCTION, "my_function");
+        TRACE_REGISTER_STRING(WORK, "work");
+    }
+
+    void my_function() {
+        TRACE_CONTEXT(MY_FUNCTION, WORK);
+        size_t sum = 0;
+        for (size_t i = 0; i < 2000; ++i)
+        {
+            sum += i;
+        }
+    }
+
+    int main() {
+        // init trace strings
+        register_trace_strings();
+
+        // Start tracing to file for 5 seconds
+        TRACE_START(5000, "trace.json");
+
+        size_t num_loops = 0;
+        while (num_loops < 1000) {
+            TRACE_MAINLOOP
+            my_function();
+            ++num_loops;
+        }
+
+        TRACE_SHUTDOWN
+        return 0;
+    }
+*/
+
 
 #pragma once
 
