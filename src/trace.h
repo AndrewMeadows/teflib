@@ -35,7 +35,7 @@
     #include <cassert>
 
     #define USE_TEF
-    #include "trace.h"
+    #include "tracing.h"
 
     TRACE_GLOBAL_INIT
 
@@ -85,7 +85,6 @@
 #include <cassert>
 #include <chrono>
 #include <cstdint>
-#include <fstream>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -99,11 +98,10 @@
 
 namespace tef {
 
-constexpr uint64_t DISTANT_FUTURE = uint64_t(-1);
-constexpr uint64_t MSEC_PER_SECOND = 1e3;
-
-// Maximum duration for a single trace session (to prevent chrome://tracing from crashing)
-constexpr uint64_t MAX_TRACE_CONSUMER_LIFETIME = 10 * MSEC_PER_SECOND;
+// Forward declarations
+class Consumer;
+class Trace_to_file;
+class Trace;
 
 // The goal here is to provide a fast+simple trace tool rather than a
 // complete one.  As a consequence not all Phase types are supported.
@@ -146,9 +144,7 @@ enum Phase : char {
 
 uint64_t get_now_msec();
 
-
-// Note: Tracer is a singleton
-class Tracer : public Singleton<Tracer> {
+class Trace : public Singleton<Trace> {
 public:
     using Variant = std::variant<std::monostate, int32_t, uint32_t, int64_t, uint64_t, float, double, std::string_view>;
     using KeyedVariant = std::pair< uint8_t, Variant >;
@@ -185,22 +181,22 @@ public:
     };
 
     // Context measures timestamp in ctor
-    // and adds a Phase::Complete event to Tracer in dtor
+    // and adds a Phase::Complete event to Trace in dtor
     class Context {
     public:
-        friend Tracer;
+        friend Trace;
 
         Context(uint8_t name, uint8_t categories)
             : _name(name), _categories(categories)
         {
-            _ts= Tracer::instance().now();
+            _ts= Trace::instance().now();
         }
 
         ~Context() {
             if (_args.empty()) {
-                Tracer::instance().add_event(_name, _categories, Phase::Complete, _ts, Tracer::instance().now() - _ts);
+                Trace::instance().add_event(_name, _categories, Phase::Complete, _ts, Trace::instance().now() - _ts);
             } else {
-                Tracer::instance().add_event_with_args(_name, _categories, Phase::Complete, _args, _ts, Tracer::instance().now() - _ts);
+                Trace::instance().add_event_with_args(_name, _categories, Phase::Complete, _args, _ts, Trace::instance().now() - _ts);
             }
 
         }
@@ -215,67 +211,10 @@ public:
         uint8_t _categories; // index to registered string of comma separated category words
     };
 
-    // To harvest trace events the pattern is:
-    // (1) Create a Consumer and give pointer to Tracer
-    // (2) Override consume_events() to do what you want with events
-    // (3) When consumer is COMPLETE close and delete
-    // (Tracer automatically removes consumer before COMPLETE)
-    class Consumer {
-    public:
-        friend class Tracer;
-
-        enum State : uint8_t {
-            ACTIVE,  // collecting events
-            EXPIRED, // lifetime is up
-            COMPLETE // all done (has collected meta_events)
-        };
-
-        Consumer(uint64_t lifetime) {
-            // Note: lifetime is limited because the chrome://tracing tool
-            // can crash when browsing very large files
-            if (lifetime > MAX_TRACE_CONSUMER_LIFETIME) {
-                lifetime = MAX_TRACE_CONSUMER_LIFETIME;
-            }
-            _lifetime = lifetime;
-        }
-
-        virtual ~Consumer() {}
-
-        // override this pure virtual method to Do Stuff with events
-        // each event will be a JSON string as per the google tracing API
-        virtual void consume_events(const std::vector<std::string>& events) = 0;
-
-        // called by Tracer on add
-        // but can also be used to change expiry on the fly
-        void update_expiry(uint64_t now) { _expiry = now + _lifetime; }
-
-        bool is_expired() const { return _state == State::EXPIRED; };
-        bool is_complete() const { return _state == State::COMPLETE; }
-
-        // called by Tracer after consume_events
-        void check_expiry(uint64_t now) {
-            if (now > _expiry) {
-                _state = EXPIRED;
-            }
-        }
-
-        // called by Tracer after expired
-        virtual void finish(const std::vector<std::string>& meta_events) {
-            assert(_state == State::EXPIRED);
-            consume_events(meta_events);
-            _state = State::COMPLETE;
-        }
-
-    protected:
-        uint64_t _lifetime; // msec
-        uint64_t _expiry { DISTANT_FUTURE };
-        State _state { State::ACTIVE };
-    };
-
     // helper
     static std::string thread_id_as_string();
 
-    Tracer() : _start_time(std::chrono::high_resolution_clock::now()) {
+    Trace() : _start_time(std::chrono::high_resolution_clock::now()) {
         _registered_strings.resize(256);
     }
 
@@ -361,117 +300,8 @@ private:
     std::atomic<bool> _enabled { false };
     mutable uint64_t _last_t { 0 };
 
-    Tracer(Tracer const&); // Don't Implement
-    void operator=(Tracer const&); // Don't implement
-};
-
-
-// Trace_to_file is a simple consumer for saving events to file
-class Trace_to_file : public Tracer::Consumer {
-public:
-    Trace_to_file(uint64_t lifetime, const std::string& filename);
-    void consume_events(const std::vector<std::string>& events) final override;
-    void finish(const std::vector<std::string>& meta_events) final override;
-    bool is_open() const { return _stream.is_open(); }
-    const std::string& get_filename() const { return _file; }
-private:
-    std::string _file;
-    std::ofstream _stream;
+    Trace(Trace const&); // Don't Implement
+    void operator=(Trace const&); // Don't implement
 };
 
 } // namespace tef
-
-    // We use 'do{}while(0)' as the no-op because:
-    // (1) Most compilers will optimize it out
-    // (2) It is a single expression and should not unexpectedly break contexts
-    //     (e.g. when used in a single-line-'if' context without braces)
-    #define TRACE_NOOP do{}while(0)
-
-#ifdef USE_TEF
-
-    // Always invoke TRACE_GLOBAL_INIT in main global space.
-    // It initializes g_trace_consumer_ptr which points at the glboal Trace_to_file instance
-    // when tracing is active, or to nullptr when not.
-    #define TRACE_GLOBAL_INIT std::unique_ptr<tef::Trace_to_file> g_trace_consumer_ptr;
-
-    // Register a string for use with TRACE_CONTEXT.
-    // The index must be a uint8_t value (0-255).
-    #define TRACE_REGISTER_STRING(index, str) ::tef::Tracer::instance().register_string(index, str)
-
-    // Start tracing to filename for a duration of lifetime_msec.
-    // After lifetime_msec the Trace_to_file instance will be "complete" and will be
-    // deleted inside TRACE_MAINLOOP.
-    #define TRACE_START(lifetime_msec, filename) \
-        g_trace_consumer_ptr = std::make_unique<tef::Trace_to_file>(lifetime_msec, filename); \
-        ::tef::Tracer::instance().add_consumer(g_trace_consumer_ptr.get());
-
-    // Check if tracing is currently active
-    #define TRACE_IS_ACTIVE() (g_trace_consumer_ptr != nullptr)
-
-    // Stop tracing early by setting expiry to 0
-    #define TRACE_STOP_EARLY() if (g_trace_consumer_ptr) g_trace_consumer_ptr->update_expiry(0);
-
-    // Get the current trace filename (returns empty string if not tracing)
-    #define TRACE_GET_FILENAME() (g_trace_consumer_ptr ? g_trace_consumer_ptr->get_filename() : std::string())
-
-    // Process accumulated trace Events and check expiry of the active trace
-    #define TRACE_MAINLOOP ::tef::Tracer::instance().advance_consumers(); if(g_trace_consumer_ptr && g_trace_consumer_ptr->is_complete()) g_trace_consumer_ptr.reset();
-
-    // Stop tracing and make sure tracing doesn't leak memory.
-    #define TRACE_SHUTDOWN ::tef::Tracer::instance().shutdown(); if (g_trace_consumer_ptr) g_trace_consumer_ptr.reset();
-
-    // Invoke TRACE_PROCESS once during init to supply a name for the process.
-    // Otherwise the process will be given some arbitrary numerical name.
-    #define TRACE_PROCESS(name) ::tef::Tracer::instance().add_meta_event("process_name", name);
-
-    // Invoke TRACE_THREAD once per thread to name the thread in the final report.
-    // Otherwise the thread will be given a numerical name.
-    #define TRACE_THREAD(name) ::tef::Tracer::instance().add_meta_event("thread_name", name);
-
-    // Invoke TRACE_THREAD_SORT once per thread to assign a sorting index when the Trace data
-    // is displayed in the trace browser. Otherwise the threads will be sorted in arbitrary order.
-    #define TRACE_THREAD_SORT(index) ::tef::Tracer::instance().add_meta_event("thread_sort_index", index);
-
-    // Create trace Events inside the local context.
-    // name = index to the registered context name string
-    // categories = index to the registered categories string
-    #define TRACE_CONTEXT(name, categories) ::tef::Tracer::Context _tef_context_(name, categories);
-
-    // Add an arg that will be added to the Event in the stream when the report is generated.
-    #define TRACE_CONTEXT_ARG(name, value)  _tef_context_.add_arg({name, value});
-
-    // Add a Counter
-    // TODO: figure out how to support multiple counts
-    #define TRACE_COUNTER(name, count_name, count) ::tef::Tracer::instance().set_counter(name, count_name, int64_t(count));
-
-    // use TRACE_BEGIN/END when you know what you're doing
-    // and when TRACE_CONTEXT does not quite do what you need
-    #define TRACE_BEGIN(name, categories) ::tef::Tracer::instance().add_event(name, categories, ::tef::Phase::DurationBegin);
-    #define TRACE_END(name, categories) ::tef::Tracer::instance().add_event(name, categories, ::tef::Phase::DurationEnd);
-
-#else   // USE_TEF
-    // When USE_TEF is undefined all macros translate to no-ops.
-
-    #define TRACE_GLOBAL_INIT int _foo_(){return 0;}
-    #define TRACE_REGISTER_STRING(index, str) TRACE_NOOP;
-
-    #define TRACE_START(lifetime_msec, filename) TRACE_NOOP;
-    #define TRACE_IS_ACTIVE() false
-    #define TRACE_STOP_EARLY() TRACE_NOOP;
-    #define TRACE_GET_FILENAME() std::string()
-    #define TRACE_MAINLOOP TRACE_NOOP;
-    #define TRACE_SHUTDOWN TRACE_NOOP;
-
-    #define TRACE_PROCESS(name) TRACE_NOOP;
-    #define TRACE_THREAD(name) TRACE_NOOP;
-    #define TRACE_THREAD_SORT(index) TRACE_NOOP;
-
-    #define TRACE_CONTEXT(name, categories) TRACE_NOOP;
-    #define TRACE_CONTEXT_ARG(fmt, value) TRACE_NOOP;
-
-    #define TRACE_COUNTER(name, count_name, count) TRACE_NOOP;
-
-    #define TRACE_BEGIN(name, categories) TRACE_NOOP;
-    #define TRACE_END(name, categories) TRACE_NOOP;
-
-#endif // USE_TEF

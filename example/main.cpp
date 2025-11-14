@@ -23,7 +23,7 @@
 #include "util/timing_util.h"
 #include "util/thread_pool.h"
 
-#include "trace.h"
+#include "tracing.h"
 
 // globals
 bool g_running = false;
@@ -112,7 +112,7 @@ void exit_handler(int32_t signum ) {
 void trace_handler(int32_t signum) {
     if (!TRACE_IS_ACTIVE()) {
         // we don't yet have a consumer,
-        // so we create one and add it to the Tracer
+        // so we create one and add it to the Trace instance
         // which will enable tracing and cause it to start collecting events
         // if it wasn't already
         constexpr uint64_t TRACE_LIFETIME = 10 * timing_util::MSEC_PER_SECOND;
@@ -125,8 +125,8 @@ void trace_handler(int32_t signum) {
         std::cout << "press 'CTRL-C' again to toggle tracing OFF\n";
     } else {
         // we already have consumer,
-        // so we interpret this signal as a desire to stop tracing early
-        // --> update it with a low expiry and the Tracer will finish it
+        // so we interpret this signal as a desire to stop tracing early -->
+        // update it with a low expiry and the Trace instance will finish it
         // on next mainloop.
         std::string filename = TRACE_GET_FILENAME();
         LOG("STOP trace file=%s\n", filename.c_str());
@@ -265,7 +265,7 @@ int32_t main(int32_t argc, char** argv) {
 
             // for fun we add an 'arg' to this event:
             // num_events will be visible in chrome://tracing browser
-            TRACE_CONTEXT_ARG(NUM_EVENTS_ARG, tef::Tracer::instance().get_num_events());
+            TRACE_CONTEXT_ARG(NUM_EVENTS_ARG, tef::Trace::instance().get_num_events());
 
             // do TRACE harvest/maintenance
             TRACE_MAINLOOP

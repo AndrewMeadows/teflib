@@ -3,6 +3,9 @@ noinst_LIBRARIES = libteflib.a
 libteflib_a_SOURCES = \
     trace.cpp \
     trace.h \
+    consumer.cpp \
+    consumer.h \
+    tracing.h \
     singleton.h
 
 # Unit tests
@@ -15,4 +18,4 @@ endif
 
 # Install teflib headers
 teflibincludedir = $(includedir)/teflib
-teflibinclude_HEADERS = trace.h singleton.h
+teflibinclude_HEADERS = trace.h consumer.h tracing.h singleton.h

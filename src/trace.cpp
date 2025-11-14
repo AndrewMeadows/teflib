@@ -5,6 +5,7 @@
 //
 
 #include "trace.h"
+#include "consumer.h"
 
 #include <sstream>
 
@@ -31,24 +32,24 @@ uint64_t tef::get_now_msec() {
 }
 
 // static
-std::string Tracer::thread_id_as_string() {
+std::string Trace::thread_id_as_string() {
     std::ostringstream tid_str;
     tid_str << std::this_thread::get_id();
     return tid_str.str();
 }
 
-void Tracer::add_event(uint8_t name, uint8_t categories, Phase ph, uint64_t ts, uint64_t dur) {
+void Trace::add_event(uint8_t name, uint8_t categories, Phase ph, uint64_t ts, uint64_t dur) {
     if (_enabled) {
         if (ts == 0)
         {
-            ts = Tracer::instance().now();
+            ts = Trace::instance().now();
         }
         std::lock_guard<std::mutex> lock(_event_mutex);
         _events.push_back({name, categories, ts, dur, std::this_thread::get_id(), -1, ph});
     }
 }
 
-void Tracer::add_event_with_args(
+void Trace::add_event_with_args(
         uint8_t name,
         uint8_t categories,
         Phase ph,
@@ -68,7 +69,7 @@ void Tracer::add_event_with_args(
     }
 }
 
-void Tracer::set_counter(
+void Trace::set_counter(
         uint8_t name,
         uint8_t count_name,
         int64_t count)
@@ -87,7 +88,7 @@ void Tracer::set_counter(
     }
 }
 
-void Tracer::add_meta_event(const std::string& type, const std::string& arg) {
+void Trace::add_meta_event(const std::string& type, const std::string& arg) {
     // Note: 'type' has a finite set of acceptable values
     //   process_name
     //   process_labels
@@ -118,7 +119,7 @@ void Tracer::add_meta_event(const std::string& type, const std::string& arg) {
     }
 }
 
-void Tracer::add_meta_event(const std::string& type, uint32_t arg) {
+void Trace::add_meta_event(const std::string& type, uint32_t arg) {
     // Note: 'type' has a finite set of acceptable values
     //   process_sort_index
     //   thread_sort_index
@@ -141,7 +142,7 @@ void Tracer::add_meta_event(const std::string& type, uint32_t arg) {
     }
 }
 
-void Tracer::advance_consumers() {
+void Trace::advance_consumers() {
     if (_events.empty()) {
         return;
     }
@@ -247,10 +248,10 @@ void Tracer::advance_consumers() {
     // consume event strings
     uint64_t now = get_now_msec();
     std::lock_guard<std::mutex> lock(_consumer_mutex);
-    std::vector<Tracer::Consumer*> expired_consumers;
+    std::vector<Consumer*> expired_consumers;
     size_t i = 0;
     while (i < _consumers.size()) {
-        Tracer::Consumer* consumer = _consumers[i];
+        Consumer* consumer = _consumers[i];
         consumer->consume_events(event_strings);
         consumer->check_expiry(now);
         if (consumer->is_expired()) {
@@ -284,14 +285,14 @@ void Tracer::advance_consumers() {
         }
         // feed meta_events to consumers
         for (size_t i = 0; i < expired_consumers.size(); ++i) {
-            Tracer::Consumer* consumer = expired_consumers[i];
+            Consumer* consumer = expired_consumers[i];
             consumer->finish(meta_events);
         }
     }
 }
 
 // call this for clean shutdown of active consumers
-void Tracer::shutdown() {
+void Trace::shutdown() {
     {
         std::lock_guard<std::mutex> lock(_consumer_mutex);
         for (size_t i = 0; i < _consumers.size(); ++i) {
@@ -301,7 +302,7 @@ void Tracer::shutdown() {
     advance_consumers();
 }
 
-void Tracer::add_consumer(Tracer::Consumer* consumer) {
+void Trace::add_consumer(Consumer* consumer) {
     if (consumer) {
         consumer->update_expiry(get_now_msec());
         std::lock_guard<std::mutex> lock(_consumer_mutex);
@@ -313,14 +314,14 @@ void Tracer::add_consumer(Tracer::Consumer* consumer) {
     }
 }
 
-void Tracer::register_string(uint8_t index, const std::string& str) {
+void Trace::register_string(uint8_t index, const std::string& str) {
     // Note: _registered_strings is NOT behind a mutex, which means it isn't thread-safe
     // to register strings in a multi-threaded fashion.  Do all string registration early
     // on the main thread.
     _registered_strings[index] = str;
 }
 
-void Tracer::remove_consumer(Tracer::Consumer* consumer) {
+void Trace::remove_consumer(Consumer* consumer) {
     // Note: no need to call this unless you're closing the consumer early
     // (e.g. before is_complete)
     std::lock_guard<std::mutex> lock(_consumer_mutex);
@@ -341,44 +342,5 @@ void Tracer::remove_consumer(Tracer::Consumer* consumer) {
     if (_consumers.size() == 0) {
         _enabled = false;
         TEFLIB_TRACE_LOG("trace enabled={}\n", _enabled);
-    }
-}
-
-Trace_to_file::Trace_to_file(uint64_t lifetime, const std::string& filename)
-    : Tracer::Consumer(lifetime), _file(filename)
-{
-    _stream.open(_file);
-    if (!_stream.is_open()) {
-        TEFLIB_TRACE_LOG("failed to open trace file='{}'\n", _file);
-        _file.clear();
-    } else {
-        TEFLIB_TRACE_LOG("opened trace='{}'\n", _file);
-        _stream << "{\"traceEvents\":[\n";
-    }
-}
-
-void Trace_to_file::consume_events(const std::vector<std::string>& events) {
-    if (_stream.is_open()) {
-        for (const auto& event : events) {
-            _stream << event << ",\n";
-        }
-    }
-}
-
-void Trace_to_file::finish(const std::vector<std::string>& meta_events) {
-    Tracer::Consumer::finish(meta_events);
-    if (_stream.is_open()) {
-        // TRICK: end with bogus "complete" event sans ending comma
-        // (this simplifies consume_event() logic)
-        std::string tid_str = Tracer::thread_id_as_string();
-        uint64_t ts = Tracer::instance().now();
-        std::string bogus_event = "{\"name\":\"end_of_trace\",\"ph\":\"X\",\"pid\":1,\"tid\":";
-        std::ostringstream ss;
-        ss << tid_str << ",\"ts\":" << ts << ",\"dur\":" << 1000 << "}";
-        bogus_event.append(ss.str());
-        _stream << bogus_event << "\n]\n}\n"; // close array instead of comma
-
-        _stream.close();
-        TEFLIB_TRACE_LOG("closed trace='{}'\n", _file);
     }
 }
