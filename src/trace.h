@@ -95,6 +95,8 @@
 
 #include <sstream>
 
+#include "singleton.h"
+
 namespace tef {
 
 constexpr uint64_t DISTANT_FUTURE = uint64_t(-1);
@@ -146,7 +148,7 @@ uint64_t get_now_msec();
 
 
 // Note: Tracer is a singleton
-class Tracer {
+class Tracer : public Singleton<Tracer> {
 public:
     using Variant = std::variant<std::monostate, int32_t, uint32_t, int64_t, uint64_t, float, double, std::string_view>;
     using KeyedVariant = std::pair< uint8_t, Variant >;
@@ -270,11 +272,6 @@ public:
         State _state { State::ACTIVE };
     };
 
-    static Tracer& instance() {
-        static std::unique_ptr<Tracer> _instance(new Tracer());
-        return (*_instance);
-    }
-
     // helper
     static std::string thread_id_as_string();
 
@@ -336,8 +333,6 @@ public:
     // This is useful for dynamic strings that need to outlive the Context lifetime.
     void register_string(uint8_t index, const std::string& str);
 
-private:
-    static std::unique_ptr<Tracer> _instance;
     mutable std::mutex _event_mutex;
     mutable std::mutex _consumer_mutex;
     std::chrono::high_resolution_clock::time_point _start_time;
@@ -356,6 +351,7 @@ private:
         Phase ph;
     };
 
+private:
     std::vector<Consumer*> _consumers;
 
     std::vector<Event> _events;

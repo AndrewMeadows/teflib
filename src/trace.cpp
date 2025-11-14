@@ -30,8 +30,6 @@ uint64_t tef::get_now_msec() {
     return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count() + msec_offset;
 }
 
-std::unique_ptr<Tracer> Tracer::_instance;
-
 // static
 std::string Tracer::thread_id_as_string() {
     std::ostringstream tid_str;
