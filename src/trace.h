@@ -1,89 +1,16 @@
+// trace.h
+//
 // teflib - Trace Event Format library
 //
 //  Distributed under the Apache License, Version 2.0.
 //  See the accompanying file LICENSE or http://www.apache.org/licenses/LICENSE-2.0.html
 //
-// teflib is a C++ utility for generating trace report data as per the Google Trace Event Format (TEF):
-//
-//     https://docs.google.com/document/d/1CvAClvFfyA5R-PhYUmn5OOQtYMH4h6I0nSsKchNAySU/edit#heading=h.yr4qxyxotyw
-//
-// A suggested usage pattern is to use the macros at the bottom of this file:
-//
-// (1) Add trace.h and trace.cpp to your project or link pre-compiled teflib library.
-//
-// (2) In main global space (before main() or in global namespace) add the macro: TRACE_GLOBAL_INIT
-//
-// (3) In main entrypoint register strings used to name various contexts and category filters.
-//     The string registration allows the tracing macros to avoid expensive allocations at runtime
-//     which reduces the overhead of the trace operations.
-//
-// (4) In your main loop, call TRACE_MAINLOOP repeatedly on each iteration
-//
-// (5) After mainloop but before exit add the macro: TRACE_SHUTDOWN
-//
-// (6) In any context for which you want to measure duration add a macro:
-//        TRACE_CONTEXT(name, categories)
-//     Declare only once per scope - multiple TRACE_CONTEXT instances in the same scope
-//     will cause variable name collisions and compilation errors.
-//     name = uint8_t index to pre-registered string name of context
-//     categories = uing8_t index to pre-registered string of comma-separated words used for filtering
-//
-// (7) Compile project with -DUSE_TEF
-//
-// Example usage:
-/*
-    #include <cassert>
-
-    #define USE_TEF
-    #include "tracing.h"
-
-    TRACE_GLOBAL_INIT
-
-    // using constexpr for trace string indices isn't required
-    // but simplifies multi-threaded context of the indices
-    // and minimizes the compiled runtime overhead
-    constexpr uint8_t MY_FUNCTION = 0;
-    constexpr uint8_t WORK = 1;
-
-    void register_trace_strings() {
-        TRACE_REGISTER_STRING(MY_FUNCTION, "my_function");
-        TRACE_REGISTER_STRING(WORK, "work");
-    }
-
-    void my_function() {
-        TRACE_CONTEXT(MY_FUNCTION, WORK);
-        size_t sum = 0;
-        for (size_t i = 0; i < 2000; ++i)
-        {
-            sum += i;
-        }
-    }
-
-    int main() {
-        // init trace strings
-        register_trace_strings();
-
-        // Start tracing to file for 5 seconds
-        TRACE_START(5000, "trace.json");
-
-        size_t num_loops = 0;
-        while (num_loops < 1000) {
-            TRACE_MAINLOOP
-            my_function();
-            ++num_loops;
-        }
-
-        TRACE_SHUTDOWN
-        return 0;
-    }
-*/
 
 
 #pragma once
 
 #include <atomic>
 #include <cassert>
-#include <chrono>
 #include <cstdint>
 #include <mutex>
 #include <string>
@@ -141,8 +68,6 @@ enum Phase : char {
     ContextEnter = '(',
     ContextLeave = ')'
 };
-
-uint64_t get_now_msec();
 
 class Trace : public Singleton<Trace> {
 public:

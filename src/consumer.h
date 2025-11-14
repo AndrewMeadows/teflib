@@ -1,4 +1,6 @@
-// teflib - Trace Event Format library
+// consumer.h
+//
+//  teflib - Trace Event Format library
 //
 //  Distributed under the Apache License, Version 2.0.
 //  See the accompanying file LICENSE or http://www.apache.org/licenses/LICENSE-2.0.html
@@ -11,17 +13,21 @@
 #include <fstream>
 #include <string>
 #include <vector>
+#include "singleton.h"
 
 namespace tef {
 
 // Forward declaration
-//class Trace;
 
 constexpr uint64_t DISTANT_FUTURE = uint64_t(-1);
 constexpr uint64_t MSEC_PER_SECOND = 1e3;
 
 // Maximum duration for a single trace session (to prevent chrome://tracing from crashing)
 constexpr uint64_t MAX_TRACE_CONSUMER_LIFETIME = 10 * MSEC_PER_SECOND;
+
+// helper
+// returns msec since first call to get_now_msec()
+uint64_t get_now_msec();
 
 // To harvest trace events the pattern is:
 // (1) Create a Consumer and give pointer to the Trace instance
@@ -30,8 +36,6 @@ constexpr uint64_t MAX_TRACE_CONSUMER_LIFETIME = 10 * MSEC_PER_SECOND;
 // (Trace automatically removes consumer before COMPLETE)
 class Consumer {
 public:
-    //friend class Trace;
-
     enum State : uint8_t {
         ACTIVE,  // collecting events
         EXPIRED, // lifetime is up
@@ -41,6 +45,10 @@ public:
     Consumer(uint64_t lifetime) {
         // Note: lifetime is limited because the chrome://tracing tool
         // can crash when browsing very large files
+        set_lifetime(lifetime);
+    }
+
+    void set_lifetime(uint64_t lifetime) {
         if (lifetime > MAX_TRACE_CONSUMER_LIFETIME) {
             lifetime = MAX_TRACE_CONSUMER_LIFETIME;
         }
@@ -49,14 +57,31 @@ public:
 
     virtual ~Consumer() {}
 
+    virtual void start(uint64_t lifetime = 0) {
+        if (_state != State::ACTIVE) {
+            if (lifetime > 0)
+                set_lifetime(lifetime);
+            _expiry = get_now_msec() + _lifetime;
+            _state = State::ACTIVE;
+        }
+    }
+
+    virtual void stop() {
+        expire();
+    }
+
     // override this pure virtual method to Do Stuff with events
     // each event will be a JSON string as per the google tracing API
     virtual void consume_events(const std::vector<std::string>& events) = 0;
 
-    // called by Trace on add
-    // but can also be used to change expiry on the fly
-    void update_expiry(uint64_t now) { _expiry = now + _lifetime; }
+    void expire() {
+        if (_state == State::ACTIVE) {
+            _expiry = 0;
+            _state == State::EXPIRED;
+        }
+    }
 
+    bool is_active() const { return _state == State::ACTIVE; }
     bool is_expired() const { return _state == State::EXPIRED; };
     bool is_complete() const { return _state == State::COMPLETE; }
 
@@ -77,13 +102,14 @@ public:
 protected:
     uint64_t _lifetime; // msec
     uint64_t _expiry { DISTANT_FUTURE };
-    State _state { State::ACTIVE };
+    State _state { State::COMPLETE };
 };
 
-// Trace_to_file is a simple consumer for saving events to file
-class Trace_to_file : public Consumer {
+// Default_consumer is a simple consumer for saving events to file
+class Default_consumer : public Consumer, public Singleton<Default_consumer> {
 public:
-    Trace_to_file(uint64_t lifetime, const std::string& filename);
+    Default_consumer();
+    void start_trace(uint64_t lifetime, const std::string& filename);
     void consume_events(const std::vector<std::string>& events) final override;
     void finish(const std::vector<std::string>& meta_events) final override;
     bool is_open() const { return _stream.is_open(); }

@@ -21,16 +21,6 @@
 
 using namespace tef;
 
-uint64_t tef::get_now_msec() {
-    using namespace std::chrono;
-    static uint64_t msec_offset = 0;
-    if (msec_offset == 0) {
-        msec_offset = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count()
-            - duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
-    }
-    return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count() + msec_offset;
-}
-
 // static
 std::string Trace::thread_id_as_string() {
     std::ostringstream tid_str;
@@ -296,7 +286,7 @@ void Trace::shutdown() {
     {
         std::lock_guard<std::mutex> lock(_consumer_mutex);
         for (size_t i = 0; i < _consumers.size(); ++i) {
-            _consumers[i]->update_expiry(0);
+            _consumers[i]->expire();
         }
     }
     advance_consumers();
@@ -304,9 +294,19 @@ void Trace::shutdown() {
 
 void Trace::add_consumer(Consumer* consumer) {
     if (consumer) {
-        consumer->update_expiry(get_now_msec());
+        consumer->start();
         std::lock_guard<std::mutex> lock(_consumer_mutex);
-        _consumers.push_back(consumer);
+        // Check if consumer is already in the vector
+        bool found = false;
+        for (size_t i = 0; i < _consumers.size(); ++i) {
+            if (_consumers[i] == consumer) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            _consumers.push_back(consumer);
+        }
         if (!_enabled.load()) {
             _enabled = true;
             TEFLIB_TRACE_LOG("trace enabled={}\n", _enabled);

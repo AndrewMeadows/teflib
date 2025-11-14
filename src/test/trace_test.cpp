@@ -10,9 +10,6 @@
 
 using json = nlohmann::json;
 
-TRACE_GLOBAL_INIT
-
-
 std::string filename = "/tmp/test_000.json";
 
 void test_000() {

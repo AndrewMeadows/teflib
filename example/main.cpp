@@ -53,9 +53,6 @@ constexpr uint8_t LOOPS_COUNT = 128;
 constexpr uint8_t DATA_SIZE_ARG = 200;
 constexpr uint8_t NUM_EVENTS_ARG = 200;
 
-
-TRACE_GLOBAL_INIT
-
 void init_trace_strings() {
     // Note: registering strings is not threadsafe,
     // so best to register them all early on the main thread.
@@ -121,7 +118,7 @@ void trace_handler(int32_t signum) {
         std::string filename = "/tmp/" + timestamp + "-trace.json";
         LOG("START trace file=%s lifetime=%lums\n", filename.c_str(), TRACE_LIFETIME);
 
-        TRACE_START(TRACE_LIFETIME, filename)
+        TRACE_START(TRACE_LIFETIME, filename);
         std::cout << "press 'CTRL-C' again to toggle tracing OFF\n";
     } else {
         // we already have consumer,
@@ -130,7 +127,7 @@ void trace_handler(int32_t signum) {
         // on next mainloop.
         std::string filename = TRACE_GET_FILENAME();
         LOG("STOP trace file=%s\n", filename.c_str());
-        TRACE_STOP_EARLY()
+        TRACE_STOP_EARLY();
         // Note: the trace consumer will automatically expire after 10 seconds,
         // even if a second signal never arrives to toggle it off.  This to
         // prevent the trace results file from getting too big: the chrome
@@ -268,7 +265,7 @@ int32_t main(int32_t argc, char** argv) {
             TRACE_CONTEXT_ARG(NUM_EVENTS_ARG, tef::Trace::instance().get_num_events());
 
             // do TRACE harvest/maintenance
-            TRACE_MAINLOOP
+            TRACE_END_MAINLOOP;
         }
 
         {

@@ -7,6 +7,7 @@
 #include "consumer.h"
 #include "trace.h"
 
+#include <chrono>
 #include <sstream>
 
 // Note: TEFLIB_TRACE_LOG is a hook for printing trace state transitions to stdout.
@@ -19,10 +20,27 @@
 #define TEFLIB_TRACE_LOG(fmtstr,...) do{}while(0);
 #endif
 
+namespace tef {
+
+// returns msec since first call to get_now_msec()
+uint64_t get_now_msec() {
+    using namespace std::chrono;
+    static uint64_t msec_offset = 0;
+    if (msec_offset == 0) {
+        msec_offset = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count()
+            - duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+    }
+    return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count() + msec_offset;
+}
+
+constexpr uint64_t DEFAULT_CONSUMER_LIFETIME = 10000; // 10 seconds in msec
+
+} // namespace tef
+
 using namespace tef;
 
-Trace_to_file::Trace_to_file(uint64_t lifetime, const std::string& filename)
-    : Consumer(lifetime), _file(filename)
+Default_consumer::Default_consumer()
+    : Consumer(DEFAULT_CONSUMER_LIFETIME), _file("/tmp/trace.json")
 {
     _stream.open(_file);
     if (!_stream.is_open()) {
@@ -34,7 +52,12 @@ Trace_to_file::Trace_to_file(uint64_t lifetime, const std::string& filename)
     }
 }
 
-void Trace_to_file::consume_events(const std::vector<std::string>& events) {
+void Default_consumer::start_trace(uint64_t lifetime, const std::string& filename) {
+    _file = filename;
+    start(lifetime);
+}
+
+void Default_consumer::consume_events(const std::vector<std::string>& events) {
     if (_stream.is_open()) {
         for (const auto& event : events) {
             _stream << event << ",\n";
@@ -42,7 +65,7 @@ void Trace_to_file::consume_events(const std::vector<std::string>& events) {
     }
 }
 
-void Trace_to_file::finish(const std::vector<std::string>& meta_events) {
+void Default_consumer::finish(const std::vector<std::string>& meta_events) {
     Consumer::finish(meta_events);
     if (_stream.is_open()) {
         // TRICK: end with bogus "complete" event sans ending comma
